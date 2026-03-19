@@ -1,0 +1,108 @@
+% ─────────────────────────────────────────────────────────────────────────────
+% BibTeX entries for the livelock detection algorithm and related work
+% ─────────────────────────────────────────────────────────────────────────────
+
+% Primary reference — this software
+@software{livelock_detection_2026,
+  title        = {Livelock Detection in Parameterized Uni-Rings
+                  of Self-Disabling Processes},
+  author       = {Farahat, A.},
+  year         = {2026},
+  url          = {https://github.com/cosmoparadox/mathematical-tools},
+  license      = {MIT},
+  abstract     = {A polynomial-time algorithm deciding livelock freedom
+                  for parameterized symmetric unidirectional rings of
+                  self-disabling processes. Runs in O(|T|^3) time
+                  independent of ring size K.}
+}
+
+% Theoretical foundation — Chapter 6 of dissertation
+@phdthesis{algebraic_characterization_2012,
+  title        = {Exact Algebraic Characterization of Global Convergence
+                  in Self-Stabilizing Systems},
+  author       = {Farahat, A.},
+  year         = {2012},
+  note         = {Chapter 6: Algebraic Characterization of Livelocks
+                  in Unidirectional Rings. Available at
+                  https://github.com/cosmoparadox/mathematical-tools}
+}
+
+% ─────────────────────────────────────────────────────────────────────────────
+% Related work
+% ─────────────────────────────────────────────────────────────────────────────
+
+% Klinkhamer-Ebnenasir — the paper whose livelock undecidability claim
+% is addressed by the above algorithm
+@article{klinkhamer2019,
+  author       = {Klinkhamer, Alex P. and Ebnenasir, Ali},
+  title        = {Verifying Livelock Freedom on Parameterized Rings and Chains},
+  journal      = {ACM Transactions on Computational Logic},
+  volume       = {20},
+  number       = {3},
+  year         = {2019},
+  publisher    = {ACM},
+  doi          = {10.1145/3326161}
+}
+
+% Dijkstra's self-stabilizing token ring — classic protocol used as test case
+@article{dijkstra1974,
+  author       = {Dijkstra, Edsger W.},
+  title        = {Self-Stabilizing Systems in Spite of Distributed Control},
+  journal      = {Communications of the ACM},
+  volume       = {17},
+  number       = {11},
+  pages        = {643--644},
+  year         = {1974},
+  publisher    = {ACM},
+  doi          = {10.1145/361179.361202}
+}
+
+% Emerson-Namjoshi — decidability via cutoff for rings
+@inproceedings{emerson1995,
+  author       = {Emerson, E. Allen and Namjoshi, Kedar S.},
+  title        = {Reasoning About Rings},
+  booktitle    = {Proceedings of the 22nd ACM SIGPLAN-SIGACT Symposium
+                  on Principles of Programming Languages (POPL)},
+  pages        = {85--94},
+  year         = {1995},
+  publisher    = {ACM},
+  doi          = {10.1145/199448.199468}
+}
+
+% Suzuki — parameterized verification undecidability
+@article{suzuki1988,
+  author       = {Suzuki, Ichiro},
+  title        = {Proving Properties of a Ring of Finite-State Machines},
+  journal      = {Information Processing Letters},
+  volume       = {28},
+  number       = {4},
+  pages        = {213--214},
+  year         = {1988},
+  publisher    = {Elsevier},
+  doi          = {10.1016/0020-0190(88)90211-6}
+}
+
+% Alpern-Schneider — safety and liveness decomposition
+@article{alpern1985,
+  author       = {Alpern, Bowen and Schneider, Fred B.},
+  title        = {Defining Liveness},
+  journal      = {Information Processing Letters},
+  volume       = {21},
+  number       = {4},
+  pages        = {181--185},
+  year         = {1985},
+  publisher    = {Elsevier},
+  doi          = {10.1016/0020-0190(85)90056-0}
+}
+
+% Knaster-Tarski fixed point theorem
+@article{tarski1955,
+  author       = {Tarski, Alfred},
+  title        = {A Lattice-Theoretical Fixpoint Theorem and Its Applications},
+  journal      = {Pacific Journal of Mathematics},
+  volume       = {5},
+  number       = {2},
+  pages        = {285--309},
+  year         = {1955},
+  doi          = {10.2140/pjm.1955.5.285}
+}

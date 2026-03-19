@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Livelock Detection in Parameterized Uni-Rings of Self-Disabling Processes"
+abstract: >
+  A polynomial-time algorithm for deciding livelock freedom in parameterized
+  symmetric unidirectional rings of self-disabling processes. The algorithm
+  is based on the shadow fixed point — the greatest fixed point of a
+  deflationary monotone operator on the finite transition set — and runs in
+  O(|T|^3) time independent of ring size K. The theoretical foundation is
+  the algebraic characterization of livelocks via the Propagation Law
+  (H* ∘ E* = E* ∘ H*) and the Circulation Law (H*^|E| ∩ E^K ≠ ∅), both
+  of which are shown to be consequences of the fixed point construction
+  rather than independent conditions to verify.
+repository-code: "https://github.com/cosmoparadox/mathematical-tools"
+license: MIT
+date-released: "2025-03-19"
+keywords:
+  - livelock detection
+  - self-stabilization
+  - parameterized verification
+  - unidirectional ring
+  - self-disabling processes
+  - shadow fixed point
+  - propagation law
+  - circulation law
+  - distributed algorithms
+  - formal verification
+
+references:
+  - type: article
+    title: >
+      Exact Algebraic Characterization of Global Livelocks in Unidirectional Rings
+    notes: "Chapter 6 — included as PDF in this repository"
+    authors:
+      - family-names: "Farahat, A."
+    year: 2026
