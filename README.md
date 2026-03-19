@@ -1,2 +1,3 @@
 # mathematical-tools
-Algorithm Detecting Livelocks in Parameterized Uni-Rings of Self-Disabling Processes.
+Multiple tools for reasoning about parameterized networks of finite-state machines.
+
