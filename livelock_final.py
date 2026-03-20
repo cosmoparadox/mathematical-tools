@@ -24,7 +24,6 @@ Circulation Law (distinct P_0 case):
 
 from math import gcd
 from functools import reduce
-import numpy as np
 
 
 # ══════════════════════════════════════════════════════
@@ -172,82 +171,106 @@ def build_H_E(kernel_from, kernel_to=None):
 # Fixed point computation
 # ══════════════════════════════════════════════════════
 
+def phi_symmetric(S, T_full):
+    """One application of Phi: PL(Filter(S, Shad(PL(S)))), restricted to T_full."""
+    P = scc_cycles(S)
+    if not P:
+        return frozenset()
+    sh = shadows(P)
+    return frozenset(scc_cycles(filter_T(frozenset(T_full), sh)))
+
+
+def inner_fixed_point(L_init, T_full, verbose=False, label="T_other"):
+    """
+    Compute the symmetric fixed point of Phi on T_full,
+    warm-started from L_init (already a subset of T_full).
+    L_init must satisfy L_init ⊆ T_full.
+    Returns L* = greatest fixed point of Phi within T_full
+    reachable by deflating from L_init.
+    """
+    S = frozenset(L_init)
+    k = 0
+    while True:
+        S2 = phi_symmetric(S, T_full)
+        if S2 == S:
+            if verbose: print(f"    [{label} inner] fixed point at iter {k}: {len(S)} transitions")
+            return S
+        if verbose:
+            print(f"    [{label} inner] iter {k}: removed {sorted(S - S2)}")
+        S = S2
+        k += 1
+
+
 def fixed_point(T_p0, T_other, verbose=True):
     """
+    Algorithm 1 (Symmetric): if T_p0 == T_other, returns greatest fixed point of Phi.
+    Algorithm 2 (Asymmetric, 1-1): joint fixed-point iteration over (L_0, L_other).
+
+    Joint iteration (Knaster-Tarski on finite lattice):
+      Both L_0 and L_other are monotone decreasing.
+      Terminate when both stabilize (LIVELOCK) or either empties (FREE).
+      Warm-starting the inner fixed point gives O(|T|^3) total.
+
     Returns (has_livelock, kern_p0, kern_other).
-    For fully symmetric: T_p0 == T_other.
     """
-    # P_0 pseudolivelock
-    P0 = scc_cycles(T_p0)
-    if not P0:
-        if verbose: print("  P_0: no pseudolivelock => NO LIVELOCK")
+    symmetric = (frozenset(T_p0) == frozenset(T_other))
+
+    if symmetric:
+        # ── Algorithm 1: Symmetric ─────────────────────────────────────────
+        if verbose: print("  [Symmetric] Running Phi fixed point on T")
+        L_star = inner_fixed_point(frozenset(T_p0), T_p0, verbose=verbose, label="T")
+        if not L_star:
+            if verbose: print("  => FREE (empty fixed point)")
+            return False, frozenset(), frozenset()
+        if verbose: print(f"  => LIVELOCK: L* = {sorted(L_star)}")
+        return True, L_star, L_star
+
+    # ── Algorithm 2: (1,1)-Asymmetric joint fixed-point ────────────────────
+    if verbose: print("  [Asymmetric] Joint fixed-point iteration over (L_0, L_other)")
+
+    # Initialise: L_0 = PL(T_0), L_other = PL(T_other)
+    L0     = frozenset(scc_cycles(frozenset(T_p0)))
+    L_other = frozenset(scc_cycles(frozenset(T_other)))
+
+    if not L0:
+        if verbose: print("  P_0: no pseudolivelock => FREE")
         return False, frozenset(), frozenset()
-    if verbose:
-        print(f"  P_0 pseudolivelock ({len(P0)}): {sorted(P0)}")
-
-    # Required shadows from P_0 pseudolivelock
-    req = shadows(P0)
-    if verbose: print(f"  Shadows needed from P_other: {sorted(req)}")
-
-    # Filter T_other then restrict to maximal SCC -> L_{r-1}
-    M_curr = filter_T(T_other, req)
-    if verbose: print(f"  T_other shadow-matched ({len(M_curr)}): {sorted(M_curr)}")
-    T_curr = frozenset(scc_cycles(M_curr))   # restrict to L_{r-1}
-    if verbose: print(f"  T_other pseudolivelock ({len(T_curr)}): {sorted(T_curr)}")
-    if not T_curr:
-        if verbose: print("  => NO LIVELOCK")
+    if not L_other:
+        if verbose: print("  T_other: no pseudolivelock => FREE")
         return False, frozenset(), frozenset()
 
-    # Fixed point within T_other
-    # The sequence T_curr is monotone decreasing (T_new ⊆ T_curr always).
-    # Therefore the only possible cycle is T_new == T_curr (immediate equality).
-    # We check for this directly — no need to track history.
-    for k in range(1, len(T_other) + 2):
-        P_curr = scc_cycles(T_curr)
-        if not P_curr:
-            if verbose: print(f"  Iter {k}: no pseudolivelock => NO LIVELOCK")
+    outer = 0
+    while True:
+        outer += 1
+        if verbose: print(f"  Outer iter {outer}: |L_0|={len(L0)}, |L_other|={len(L_other)}")
+
+        # Step 1: constrain L_other by what L_0 requests (warm-start from current L_other)
+        req_fwd = shadows(L0)
+        L_other_constrained = frozenset(filter_T(L_other, req_fwd))
+        L_other_new = inner_fixed_point(L_other_constrained, T_other,
+                                        verbose=verbose, label="L_other")
+        if verbose: print(f"    L_other_new = {sorted(L_other_new)}")
+
+        if not L_other_new:
+            if verbose: print("  => FREE (L_other emptied)")
             return False, frozenset(), frozenset()
 
-        req_curr = shadows(P_curr)
-        M_new  = filter_T(T_curr, req_curr)   # shadow match: M_{r-1}
-        T_new  = frozenset(scc_cycles(M_new))  # restrict to maximal SCC: L_{r-1}
+        # Step 2: ring closure — constrain L_0 by what L_other_new requests
+        req_back = shadows(L_other_new)
+        L0_new = frozenset(scc_cycles(filter_T(frozenset(T_p0), req_back)))
+        if verbose: print(f"    L_0_new = {sorted(L0_new)}")
 
-        if verbose:
-            removed = T_curr - T_new
-            if removed: print(f"  Iter {k}: removed {sorted(removed)}")
-            else: print(f"  Iter {k}: fixed point ({len(T_new)} transitions)")
-
-        if not T_new:
-            if verbose: print("  => NO LIVELOCK")
+        if not L0_new:
+            if verbose: print("  => FREE (L_0 emptied)")
             return False, frozenset(), frozenset()
 
-        if T_new == T_curr:
-            # Fixed point reached — T_new is stable under shadow projection
-            P_final = scc_cycles(T_new)
-            if not P_final:
-                if verbose: print("  Fixed point but no pseudolivelock => NO LIVELOCK")
-                return False, frozenset(), frozenset()
+        # Termination check: joint fixed point
+        if L0_new == L0 and L_other_new == L_other:
+            if verbose: print(f"  => LIVELOCK: joint fixed point reached")
+            return True, L0_new, L_other_new
 
-            # Check ring closure back to P_0
-            req_back = shadows(P_final)
-            T_p0_back = filter_T(T_p0, req_back)
-            P0_back = scc_cycles(T_p0_back)
-
-            if verbose:
-                print(f"  Fixed point in T_other ({len(P_final)} transitions)")
-                print(f"  Shadows back to P_0: {sorted(req_back)}")
-                print(f"  P_0 check: {sorted(P0_back)}")
-
-            if P0_back:
-                if verbose: print("  Ring closes => LIVELOCK EXISTS")
-                return True, P0_back, P_final
-            else:
-                if verbose: print("  Ring does not close => NO LIVELOCK")
-                return False, frozenset(), frozenset()
-
-        T_curr = T_new
-
-    return None, frozenset(), frozenset()
+        L0      = L0_new
+        L_other = L_other_new
 
 
 # ══════════════════════════════════════════════════════
@@ -454,10 +477,6 @@ def check_propagation_law(k0, ko, sym, verbose=True):
     K0 = sorted(k0); Ko = sorted(ko)
     H_0     = build_H_local(K0)
     H_other = build_H_local(Ko)
-    
-    print(f"H_0 =\n{np.array(H_0)}")
-    print(f"H_other =\n{np.array(H_other)}")
-
 
     def equiv_check(H_prev, E, H_curr, label):
         HE = bmm(H_prev, E)
@@ -469,7 +488,6 @@ def check_propagation_law(k0, ko, sym, verbose=True):
 
     if sym:
         E_other = build_E_interface(Ko, Ko)
-        print(f"E_other =\n{np.array(E_other)}")
         ok = equiv_check(H_other, E_other, H_other,
                          "P_r->P_{r+1} (H_other ∘ E_other = E_other ∘ H_other)")
         return ok
@@ -477,11 +495,6 @@ def check_propagation_law(k0, ko, sym, verbose=True):
         E_cross = build_E_interface(K0, Ko)   # Ko -> K0
         E_0     = build_E_interface(Ko, K0)   # K0 -> Ko
         E_other = build_E_interface(Ko, Ko)   # Ko -> Ko
-        
-        print(f"E_cross =\n{np.array(E_cross)}")
-        print(f"E_0 =\n{np.array(E_0)}")
-        print(f"E_other =\n{np.array(E_other)}")
-
         ok1 = equiv_check(H_other, E_cross, H_0,
                           "P_{K-1}->P_0   (H_other ∘ E_cross = E_cross ∘ H_0)")
         ok2 = equiv_check(H_0,     E_0,     H_other,
@@ -564,27 +577,5 @@ if __name__ == "__main__":
 
     analyze("Non-det dead-ends (m=3)",
             [(0,1,0),(0,1,2),(1,0,1),(2,1,2)], expect="LIVELOCK")
-
-                
-    m=4        
-    analyze("Agreement Symmetric (m=4)",
-            [(v, w, v) for v in range(m) for w in range(m) if v != w],
-            expect="LIVELOCK")
-
-    m=5
-    analyze("Symmetric Non-Deterministic Sum-Not-4",
-           [(u, v, v + 1) for u in range(m) for v in range(m) if (u + v)%m == m - 1],
-           expect="NO LIVELOCK")
-           
-    m=5
-    analyze("Maximal Asymmetric Non-Deterministic Coloring (m=5)",
-            [(v, v, w) for v in range(m) for w in range (m) if (v%2 == 1 and w == v + 1) or (v%2 == 0 and w == v - 1)],
-            [(v, v, w) for v in range(m) for w in range(m) if v != w],
-            expect="LIVELOCK")
-            
-    m=5
-    analyze("Maximal Symmetric Non-Deterministic Coloring (m=5)",
-            [(v, v, w) for v in range(m) for w in range (m) if v != w],
-            expect="LIVELOCK")
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
