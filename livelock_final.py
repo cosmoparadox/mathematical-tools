@@ -130,14 +130,14 @@ def build_H_E(kernel_from, kernel_to=None):
     """
     H[i][j] = 1  iff  t_j.own == t_i.written   (pseudolivelock step)
 
-    E[k][j] = 1  iff  there exists H-edge (t_i -> t_j) such that t_k is the
-                       unique transition with t_k.own == t_i.pred AND
-                       t_k.written == t_j.pred.  (arc-based forward map)
+    E[k][j] = 1  iff  there exists H-edge (t_i -> t_j) such that t_k.own == t_i.pred
+                       AND t_k.written == t_j.pred.  Multiple t_k may qualify
+                       (they share the same (own,written) but differ in pred).
 
     Construction: for each H-edge (t_i -> t_j):
       arc changes pred: t_i.pred -> t_j.pred
-      find unique t_k in kernel_from: t_k.own=t_i.pred, t_k.written=t_j.pred
-      set E[k][j] = 1  (t_k in P_{r-1} enables t_j in P_r)
+      find ALL t_k in kernel_from: t_k.own=t_i.pred, t_k.written=t_j.pred
+      set E[k][j] = 1 for each such t_k  (arc-based forward map)
 
     Result: E = H for protocols where pred==own (coloring-type).
             E = I for protocols where written==pred (agreement-type).
@@ -146,8 +146,11 @@ def build_H_E(kernel_from, kernel_to=None):
     Kt = sorted(kernel_to) if kernel_to else Kf
     nf, nt = len(Kf), len(Kt)
 
-    # (own,written) -> index in Kf
-    ow_f = {(tk[1], tk[2]): k for k, tk in enumerate(Kf)}
+    # (own,written) -> list of indices in Kf (may be multiple, differ only in pred)
+    from collections import defaultdict
+    ow_f = defaultdict(list)
+    for k, tk in enumerate(Kf):
+        ow_f[(tk[1], tk[2])].append(k)
 
     # H on Kt (square)
     H = [[0]*nt for _ in range(nt)]
@@ -156,12 +159,13 @@ def build_H_E(kernel_from, kernel_to=None):
             if tj[1] == ti[2]: H[i][j] = 1
 
     # E: forward map Kf -> Kt
+    # For each H-edge (t_i -> t_j), ALL transitions t_k in Kf with
+    # t_k.own == t_i.pred AND t_k.written == t_j.pred are valid arc predecessors.
     E = [[0]*nt for _ in range(nf)]
     for i,ti in enumerate(Kt):
         for j,tj in enumerate(Kt):
             if not H[i][j]: continue
-            k = ow_f.get((ti[0], tj[0]))  # unique match
-            if k is not None:
+            for k in ow_f.get((ti[0], tj[0]), []):
                 E[k][j] = 1
 
     return Kf, Kt, H, E
@@ -577,5 +581,16 @@ if __name__ == "__main__":
 
     analyze("Non-det dead-ends (m=3)",
             [(0,1,0),(0,1,2),(1,0,1),(2,1,2)], expect="LIVELOCK")
+
+
+    m=5
+    analyze("Non-det Coloring symmetric (m=5)",
+            [(v,v,w) for v in range(m) for w in range(m) if w!=v], expect="LIVELOCK")
+
+    analyze("Agreement asymmetric (m=5)",
+            [(v,w,v) for v in range(m) for w in range(m) if w > v],
+            [(v,w,v) for v in range(m) for w in range(m) if w!=v], expect="NO LIVELOCK")
+
+
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
