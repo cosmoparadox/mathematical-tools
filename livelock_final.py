@@ -591,6 +591,17 @@ if __name__ == "__main__":
             [(v,w,v) for v in range(m) for w in range(m) if w > v],
             [(v,w,v) for v in range(m) for w in range(m) if w!=v], expect="NO LIVELOCK")
 
+    m = 100
+    analyze("Left Copy-Cat Asymmetric (m=100)",
+            [(v,v, (v+1)%m) for v in range(m)],
+            [(v, w, v) for v in range (m) for w in range(m) if v != w],
+            expect="LIVELOCK")
+
+    m = 10
+    analyze("Left Copy-Cat Asymmetric (m=10)",
+            [(v,v, (v+1)%m) for v in range(m - 1)],
+            [(v, w, v) for v in range (m) for w in range(m) if v != w],
+            expect="NO LIVELOCK")
 
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
