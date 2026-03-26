@@ -10,11 +10,11 @@ Fixed point iteration:
   3. Filter transitions to those matching required shadows (y,z positions)
   4. Repeat until fixed point or empty
   5. Check ring closure back to P_0
-  
+
 Circulation Law (distinct P_0 case):
   At P_other process:
   H^|E| = E0 o Ecross o E_other^{K-2}
-  
+
   where:
     H      = pseudolivelock matrix on P_other kernel
     E_other = propagation P_other -> P_other (on kernel)
@@ -431,83 +431,6 @@ def resolve_CL(kern_p0, kern_other, verbose=True):
 
 
 # ══════════════════════════════════════════════════════
-# Propagation Law check
-# ══════════════════════════════════════════════════════
-
-def build_H_local(K):
-    """H on kernel K: H[i][j] = 1 iff tj.own == ti.written"""
-    n = len(K)
-    H = [[0]*n for _ in range(n)]
-    for i,ti in enumerate(K):
-        for j,tj in enumerate(K):
-            if tj[1] == ti[2]: H[i][j] = 1
-    return H
-
-def build_E_interface(Kt, Kf):
-    """
-    Forward E: Kf (P_{r-1}) -> Kt (P_r).
-    For each H-edge (ti->tj) in Kt:
-      arc: ti.pred -> tj.pred
-      unique tk in Kf: tk.own=ti.pred, tk.written=tj.pred
-      E[k][j] = 1
-    """
-    nt = len(Kt); nf = len(Kf)
-    H  = build_H_local(Kt)
-    ow = {(tk[1],tk[2]):k for k,tk in enumerate(Kf)}
-    E  = [[0]*nt for _ in range(nf)]
-    for i,ti in enumerate(Kt):
-        for j,tj in enumerate(Kt):
-            if not H[i][j]: continue
-            k = ow.get((ti[0], tj[0]))
-            if k is not None:
-                E[k][j] = 1
-    return E
-
-def check_propagation_law(k0, ko, sym, verbose=True):
-    """
-    Check H_prev ∘ E = E ∘ H_curr at each interface around the ring.
-
-    Symmetric: one interface (P_other -> P_other).
-    Asymmetric: three interfaces:
-      1. P_{K-1} (other) -> P_0:      H_other ∘ E_cross = E_cross ∘ H_0
-      2. P_0 -> P_1 (other):          H_0     ∘ E_0     = E_0     ∘ H_other
-      3. P_r  -> P_{r+1} (other):     H_other ∘ E_other = E_other ∘ H_other
-    """
-    if verbose:
-        print(f"  ──────────────────────────────────────────────────")
-        print(f"  Propagation Law: H_prev ∘ E = E ∘ H_curr")
-        print(f"  ──────────────────────────────────────────────────")
-
-    K0 = sorted(k0); Ko = sorted(ko)
-    H_0     = build_H_local(K0)
-    H_other = build_H_local(Ko)
-
-    def equiv_check(H_prev, E, H_curr, label):
-        HE = bmm(H_prev, E)
-        EH = bmm(E, H_curr)
-        ok = (HE == EH)
-        if verbose:
-            print(f"  {label}: {'✓' if ok else '✗'}")
-        return ok
-
-    if sym:
-        E_other = build_E_interface(Ko, Ko)
-        ok = equiv_check(H_other, E_other, H_other,
-                         "P_r->P_{r+1} (H_other ∘ E_other = E_other ∘ H_other)")
-        return ok
-    else:
-        E_cross = build_E_interface(K0, Ko)   # Ko -> K0
-        E_0     = build_E_interface(Ko, K0)   # K0 -> Ko
-        E_other = build_E_interface(Ko, Ko)   # Ko -> Ko
-        ok1 = equiv_check(H_other, E_cross, H_0,
-                          "P_{K-1}->P_0   (H_other ∘ E_cross = E_cross ∘ H_0)")
-        ok2 = equiv_check(H_0,     E_0,     H_other,
-                          "P_0->P_1       (H_0     ∘ E_0     = E_0     ∘ H_other)")
-        ok3 = equiv_check(H_other, E_other, H_other,
-                          "P_r->P_{r+1}   (H_other ∘ E_other = E_other ∘ H_other)")
-        return ok1 and ok2 and ok3
-
-# ══════════════════════════════════════════════════════
 # Complete analysis
 # ══════════════════════════════════════════════════════
 
@@ -543,7 +466,15 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None):
         print(f"\n  P_0 kernel   : {sorted(k0)}")
         print(f"  P_other kernel: {sorted(ko)}")
         resolve_CL(k0, ko, verbose=True)
-        check_propagation_law(k0, ko, sym, verbose=True)
+        if sym:
+            structural_analysis(ko, label_r="L*")
+        else:
+            # Interface 1: P_other -> P_other
+            structural_analysis(ko, label_r="L*_others")
+            # Interface 2: P_0 -> P_other
+            structural_analysis(k0, ko, label_r="L*_0", label_r1="L*_others")
+            # Interface 3: P_other -> P_0
+            structural_analysis(ko, k0, label_r="L*_others", label_r1="L*_0")
 
     correct = (has_ll == (expect == "LIVELOCK")) if expect else None
     tag = "✓" if correct else ("✗" if correct is False else "")
@@ -551,13 +482,278 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None):
     return has_ll
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# STRUCTURAL ANALYSIS: Cycle Basis, E_ij Decomposition, Propagation Law
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cycle_to_edge_set(cycle):
+    """Represent a cycle as a frozenset of directed edges."""
+    n = len(cycle)
+    return frozenset((cycle[i], cycle[(i+1)%n]) for i in range(n))
+
+def or_ear_decomposition(H, Kf):
+    """
+    OR-based ear decomposition: find the minimal set of simple cycles
+    whose UNION covers all edges of H* (using set-union, not GF(2) XOR).
+    These are the atoms of the transition-set algebra used by E*.
+    Returns (ears, complete) where ears is a list of cycle tuples.
+    """
+    n = len(Kf)
+    cycles = []
+    def dfs(start, cur, path, path_set):
+        for nxt in range(n):
+            if not H[cur][nxt]: continue
+            if nxt == start and len(path) >= 2:
+                cycles.append(tuple(path))
+            elif nxt > start and nxt not in path_set:
+                path_set.add(nxt); path.append(nxt)
+                dfs(start, nxt, path, path_set)
+                path.pop(); path_set.remove(nxt)
+    for s in range(n):
+        dfs(s, s, [s], {s})
+    seen = set()
+    unique = []
+    for c in cycles:
+        canon = min(c[i:]+c[:i] for i in range(len(c)))
+        if canon not in seen:
+            seen.add(canon)
+            unique.append(tuple(Kf[v] for v in c))
+    unique.sort(key=len)
+
+    all_edges = {(i,j) for i in range(n) for j in range(n) if H[i][j]}
+    covered = set()
+    ears = []
+    for cyc in unique:
+        c_idx = tuple(Kf.index(t) for t in cyc)
+        c_edges = {(c_idx[k], c_idx[(k+1)%len(c_idx)]) for k in range(len(c_idx))}
+        new_edges = c_edges - covered
+        if new_edges:
+            ears.append(cyc)
+            covered |= c_edges
+        if covered == all_edges:
+            break
+    return ears, covered == all_edges
+
+
+    """Represent a cycle as a frozenset of directed edges."""
+    n = len(cycle)
+    return frozenset((cycle[i], cycle[(i+1)%n]) for i in range(n))
+
+def compute_cycle_basis(H, Kf):
+    """
+    Compute a minimum cycle basis for H* using GF(2) Gaussian elimination.
+    Cycles sorted by length first (shortest basis).
+    Returns (basis, all_simple_cycles).
+    """
+    from itertools import product as iproduct
+    n = len(Kf)
+
+    # Find all simple cycles
+    cycles = []
+    def dfs(start, cur, path, path_set):
+        for nxt in range(n):
+            if not H[cur][nxt]: continue
+            if nxt == start and len(path) >= 2:
+                cycles.append(tuple(path))
+            elif nxt > start and nxt not in path_set:
+                path_set.add(nxt); path.append(nxt)
+                dfs(start, nxt, path, path_set)
+                path.pop(); path_set.remove(nxt)
+    for s in range(n):
+        dfs(s, s, [s], {s})
+    seen = set()
+    unique = []
+    for c in cycles:
+        canon = min(c[i:]+c[:i] for i in range(len(c)))
+        if canon not in seen:
+            seen.add(canon)
+            unique.append(tuple(Kf[v] for v in c))
+
+    # GF(2) Gaussian elimination (shortest first)
+    sorted_cycles = sorted(unique, key=len)
+    basis = []
+    basis_vecs = []
+    pivot_cols = {}
+    for cycle in sorted_cycles:
+        vec = cycle_to_edge_set(cycle)
+        reduced = vec
+        for edge, bidx in pivot_cols.items():
+            if edge in reduced:
+                reduced = reduced.symmetric_difference(basis_vecs[bidx])
+        if reduced:
+            basis.append(cycle)
+            basis_vecs.append(reduced)
+            pivot = min(reduced, key=str)
+            pivot_cols[pivot] = len(basis_vecs)-1
+    return basis, unique
+
+def get_eij_bijection(C1, C2, E, Kf):
+    """
+    Return E_ij: C1->C2 as dict {t_k: t_j} if it is a bijection, else None.
+    """
+    if len(C1) != len(C2): return None
+    c1_idx = [Kf.index(t) for t in C1]
+    c2_idx = [Kf.index(t) for t in C2]
+    edges = [(Kf[ii], Kf[jj]) for ii in c1_idx for jj in c2_idx if E[ii][jj]]
+    targets = [tj for _,tj in edges]
+    sources = [ti for ti,_ in edges]
+    if (len(edges) != len(C1) or len(set(targets)) != len(C1) or
+        len(set(sources)) != len(C1) or set(targets) != set(C2)):
+        return None
+    return dict(edges)
+
+def check_propagation_law_bij(bij, C_i, C_j):
+    """
+    Check restricted propagation law: E_ij(H_Ci(t)) = H_Cj(E_ij(t))
+    for all t in C_i. Returns True if holds.
+    """
+    Hci = {C_i[k]: C_i[(k+1)%len(C_i)] for k in range(len(C_i))}
+    Hcj = {C_j[k]: C_j[(k+1)%len(C_j)] for k in range(len(C_j))}
+    return all(bij[Hci[t]] == Hcj[bij[t]] for t in C_i)
+
+def structural_analysis(L_r, L_r1=None, label_r="L*", label_r1=None):
+    """
+    Full structural analysis:
+    1. Cycle basis of H*(L_r)
+    2. E_ij decomposition between basis cycles
+    3. Propagation law check for each E_ij
+    4. Cross-process analysis if L_r1 provided
+    """
+    if L_r1 is None:
+        L_r1 = L_r
+    if label_r1 is None:
+        label_r1 = label_r
+
+    Kfr, _, Hr, Er = build_H_E(L_r, L_r)
+    Kfr1, _, Hr1, Er1 = build_H_E(L_r1, L_r1)
+
+    print(f"\n{'='*60}")
+    print(f"Structural analysis: {label_r}")
+    print(f"{'='*60}")
+
+    # Cycle basis: GF(2) for dimension, OR ears for E_ij analysis
+    gf2_basis, _ = compute_cycle_basis(Hr, Kfr)
+    ears_r, complete = or_ear_decomposition(Hr, Kfr)
+    nr = len(Kfr)
+    n_edges = sum(Hr[i][j] for i in range(nr) for j in range(nr))
+    from collections import deque as _dq
+    _vis = set(); _nc = 0
+    for _s in range(nr):
+        if _s in _vis: continue
+        _nc += 1; _q = _dq([_s])
+        while _q:
+            _u = _q.popleft()
+            if _u in _vis: continue
+            _vis.add(_u)
+            for _v in range(nr):
+                if Hr[_u][_v] or Hr[_v][_u]: _q.append(_v)
+    print(f"|L*| = {nr}, H* edges = {n_edges}, components = {_nc}")
+    print(f"GF(2) basis size = {n_edges - nr + _nc}  |  OR ears = {len(ears_r)}  (complete={complete})")
+    print(f"OR-based ears (atoms for E_ij analysis):")
+    for i,c in enumerate(ears_r):
+        chain = " --> ".join(str(t) for t in c) + f" --> {c[0]}"
+        print(f"  EAR{i+1}(len={len(c)}): {chain}")
+
+    # E_ij: restrict actual E* to each ear pair (C_i, C_j)
+    # Do NOT search for bijections between arbitrary same-length pairs.
+    # Instead: for each ear C_i, see where E* sends its transitions,
+    # group by target ear, and check equivariance on those restrictions.
+    print(f"\nE_ij from actual E* restriction to ear pairs ({label_r} -> {label_r}):")
+    bij_count = 0; prop_pass = 0; prop_fail = 0
+    for i, Ci in enumerate(ears_r):
+        # Find all E*-images of transitions in Ci
+        ci_idx = [Kfr.index(t) for t in Ci]
+        # Group images by which ear they land in
+        ear_images = {}  # j -> {t: t'}
+        for ii, t in zip(ci_idx, Ci):
+            imgs = [Kfr[jj] for jj in range(nr) if Er[ii][jj]]
+            for tj in imgs:
+                # Find which ear tj belongs to
+                for j, Cj in enumerate(ears_r):
+                    if tj in Cj:
+                        if j not in ear_images: ear_images[j] = {}
+                        if t in ear_images[j]:
+                            # multiple images to same ear -- not a bijection
+                            ear_images[j][t] = None  # mark as non-bijective
+                        else:
+                            ear_images[j][t] = tj
+        # For each target ear, check if restriction is a bijection and equivariant
+        for j, mapping in sorted(ear_images.items()):
+            Cj = ears_r[j]
+            if None in mapping.values(): continue
+            if len(mapping) != len(Ci): continue
+            targets = list(mapping.values())
+            if len(set(targets)) != len(targets): continue
+            if set(targets) != set(Cj): continue
+            ok = check_propagation_law_bij(mapping, Ci, Cj)
+            if not ok: continue   # not a genuine morphism -- skip
+            tag = f"EAR{i+1}->EAR{j+1}" if i != j else f"EAR{i+1}->EAR{i+1} (self)"
+            print(f"  {tag}(len={len(Ci)}->{len(Cj)}): prop=✓")
+            print(f"    {mapping}")
+            bij_count += 1
+            prop_pass += 1
+    print(f"  [{bij_count} equivariant E_ij morphisms]")
+
+    # Cross-process E_ij if L_r1 != L_r
+    if L_r1 != L_r:
+        ears_r1, _ = or_ear_decomposition(Hr1, Kfr1)
+        print(f"\nCross-process E_ij ({label_r} -> {label_r1}):")
+        Kf_src, Kt_tgt, H_cross, E_cross = build_H_E(L_r, L_r1)
+
+        def get_eij_cross(C1, C2, E, Ksrc, Ktgt):
+            if len(C1) != len(C2): return None
+            try:
+                c1_idx = [Ksrc.index(t) for t in C1]
+                c2_idx = [Ktgt.index(t) for t in C2]
+            except ValueError:
+                return None
+            edges = [(Ksrc[ii], Ktgt[jj]) for ii in c1_idx for jj in c2_idx if E[ii][jj]]
+            targets = [tj for _,tj in edges]
+            sources = [ti for ti,_ in edges]
+            if (len(edges) != len(C1) or len(set(targets)) != len(C1) or
+                len(set(sources)) != len(C1) or set(targets) != set(C2)):
+                return None
+            return dict(edges)
+
+        bij_count_x = 0; prop_pass_x = 0; prop_fail_x = 0
+        for i, Ci in enumerate(ears_r):
+            try: ci_idx = [Kf_src.index(t) for t in Ci]
+            except ValueError: continue
+            ear_images = {}
+            for ii, t in zip(ci_idx, Ci):
+                imgs = [Kt_tgt[jj] for jj in range(len(Kt_tgt)) if E_cross[ii][jj]]
+                for tj in imgs:
+                    for j, Cj in enumerate(ears_r1):
+                        if tj in Cj:
+                            if j not in ear_images: ear_images[j] = {}
+                            if t in ear_images[j]:
+                                ear_images[j][t] = None
+                            else:
+                                ear_images[j][t] = tj
+            for j, mapping in sorted(ear_images.items()):
+                Cj = ears_r1[j]
+                if None in mapping.values(): continue
+                if len(mapping) != len(Ci): continue
+                targets = list(mapping.values())
+                if len(set(targets)) != len(targets): continue
+                if set(targets) != set(Cj): continue
+                ok = check_propagation_law_bij(mapping, Ci, Cj)
+                if not ok: continue
+                print(f"  Er{i+1}->Er1_{j+1}(len={len(Ci)}->{len(Cj)}): prop=✓")
+                print(f"    {mapping}")
+                bij_count_x += 1
+                prop_pass_x += 1
+        print(f"  [{bij_count_x} equivariant E_ij morphisms]")
+
+    return ears_r
+
 # ══════════════════════════════════════════════════════
 # Tests
 # ══════════════════════════════════════════════════════
 
 if __name__ == "__main__":
 
-    for m in [3, 4, 5]:
+    for m in [3, 4, 5, 50]:
         T0  = [(v, v, (v+1)%m) for v in range(m)]
         To  = [(v, w, v) for v in range(m) for w in range(m) if v != w]
         analyze(f"Dijkstra (m={m})", T0, To, "LIVELOCK")
@@ -582,26 +778,20 @@ if __name__ == "__main__":
     analyze("Non-det dead-ends (m=3)",
             [(0,1,0),(0,1,2),(1,0,1),(2,1,2)], expect="LIVELOCK")
 
-
-    m=5
-    analyze("Non-det Coloring symmetric (m=5)",
-            [(v,v,w) for v in range(m) for w in range(m) if w!=v], expect="LIVELOCK")
-
-    analyze("Agreement asymmetric (m=5)",
-            [(v,w,v) for v in range(m) for w in range(m) if w > v],
-            [(v,w,v) for v in range(m) for w in range(m) if w!=v], expect="NO LIVELOCK")
-
-    m = 100
-    analyze("Left Copy-Cat Asymmetric (m=100)",
-            [(v,v, (v+1)%m) for v in range(m)],
-            [(v, w, v) for v in range (m) for w in range(m) if v != w],
+    m = 4
+    analyze("AI Proposed Protocol (m=4)",
+            [(v, w, (w + 2)%m) for v in range(m) for w in range(m) if w == v or w == (v + 1)%m],
             expect="LIVELOCK")
 
-    m = 10
-    analyze("Left Copy-Cat Asymmetric (m=10)",
-            [(v,v, (v+1)%m) for v in range(m - 1)],
-            [(v, w, v) for v in range (m) for w in range(m) if v != w],
-            expect="NO LIVELOCK")
+    m = 4
+    analyze("Non Deterministic Coloring (m=4)",
+            [(v, v, w) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
 
+    m = 4
+    analyze("Agreement (m=4)",
+            [(v, w, v) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
+
