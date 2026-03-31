@@ -572,41 +572,12 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None):
     if has_ll:
         print(f"\n  Kernel P0: {sorted(k0)}")
         print(f"  Kernel Po: {sorted(ko)}")
-        resolve_CL(k0, ko, verbose=True)
-
-        # Per-cycle structural analysis (symmetric self-propagation)
-        L = ko  # use P_other kernel for the cycle analysis
-        H, Kf = _build_H(L)
-        nc = len(find_simple_cycles(H, Kf))
-        if nc <= 200:
-            print(f"\n  ── Cycle Propagation Analysis ({nc} simple cycles) ──")
-            pm, cr, cp = build_propagation_map(L, L, verbose=True)
-
-            # Conjunction table
-            print(f"\n  ╔══ CONJUNCTION TABLE ══╗")
-            shown = 0
-            for ci, info in pm.items():
-                if shown >= 30: print(f"  ... ({len(pm)-30} more)"); break
-                shown += 1
-                ws = info['walks']
-                if not ws:
-                    print(f"  C[{ci}](len={info['length']}): ✗ no enabling walk")
-                    continue
-                conjs = set(wd['conjunction'] for wd in ws)
-                for cj in sorted(conjs):
-                    if len(cj)==1:
-                        sh = next((wd['shift'] for wd in ws if wd['conjunction']==cj), None)
-                        tag = f"z^{sh}" if sh is not None else ""
-                        fp = " (self)" if cj[0]==ci else ""
-                        print(f"  C[{ci}](len={info['length']}) ← C[{cj[0]}](len={len(cp[cj[0]])})"
-                              f" {tag}{fp}")
-                    else:
-                        parts = " ∧ ".join(f"C[{x}]" for x in cj)
-                        print(f"  C[{ci}](len={info['length']}) ← conjunction: {parts}")
-
-            permutation_analysis(pm, cr, cp, verbose=True)
-        else:
-            print(f"\n  {nc} simple cycles (structural analysis skipped — too many)")
+        # NOTE: For algebraic characterization (cycle basis, propagation
+        # relation, shifts), use homology_Z.py's compute_algebra(ko).
+        # The resolve_CL, build_propagation_map, and permutation_analysis
+        # functions below are retained for reference but have assumptions
+        # (single permutation, shift only for single-conjunction) that
+        # break for non-deterministic shadow maps.
 
     ok = (has_ll == (expect=="LIVELOCK")) if expect else None
     tag = " ✓" if ok else (" ✗" if ok is False else "")
@@ -675,7 +646,7 @@ if __name__ == "__main__":
     analyze("Non-det coloring (m=3)",
             [(v, v, w) for v in range(m) for w in range(m) if v != w],
             expect="LIVELOCK")
-
+            
     # 8-Transitions Non-Deterministic
     analyze("8-transitions Non-Deterministic",
             [(v,w,(w+2)%4) for v in range(4) for w in range(4) if v == w or w == (v+1)%4],
