@@ -1,36 +1,40 @@
 """
-Livelock Detection — Complete Implementation
-Shadow-Constrained Fixed Point + Circulation Law Resolution
+Livelock Detection for Parameterized Self-Disabling Unidirectional Rings
+════════════════════════════════════════════════════════════════════════
 
-For symmetric protocols with optional distinct P_0.
+Complete self-contained implementation:
 
-Fixed point iteration:
-  1. Compute maximal pseudolivelock (SCC-based) of current set
-  2. Compute required shadows for that pseudolivelock
-  3. Filter transitions to those matching required shadows (y,z positions)
-  4. Repeat until fixed point or empty
-  5. Check ring closure back to P_0
+  1. DECISION ALGORITHM (Theorem 6 of the paper)
+     - Shadow-constrained fixed point Φ on transition set T
+     - Symmetric (Algorithm 1) and (1,1)-asymmetric (Algorithm 2)
+     - O(|T|³) time, independent of ring size K
 
-Circulation Law (distinct P_0 case):
-  At P_other process:
-  H^|E| = E0 o Ecross o E_other^{K-2}
+  2. CIRCULATION LAW
+     - Resolves valid (|E|, K) pairs: H^|E| ∩ E^K ≠ ∅
 
-  where:
-    H      = pseudolivelock matrix on P_other kernel
-    E_other = propagation P_other -> P_other (on kernel)
-    E0     = propagation P_0 -> P_other (cross kernel)  
-    Ecross = propagation P_other -> P_0 (cross kernel)
+  3. PER-CYCLE STRUCTURAL ANALYSIS
+     - Finds all simple cycles in refined H*(L*)
+     - Per-cycle shadow computation and enabling walk enumeration
+     - Conjunction decomposition (walk → simple cycles)
+     - Bipartite permutation: E maps cycles to cycles bijectively via shifts
+
+  4. SELF-DISABLING VALIDATION
+     - Rejects invalid protocols upfront
+
+Foundation: Farahat (2012), Farahat (2026 preprint), Klinkhamer & Ebnenasir (2019).
 """
 
 from math import gcd
 from functools import reduce
+from collections import defaultdict, Counter
 
 
-# ══════════════════════════════════════════════════════
-# Boolean matrix operations
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+#  MATRIX OPERATIONS
+# ═══════════════════════════════════════════════════════════════
 
 def bmm(A, B):
+    """Boolean matrix multiply (square)."""
     n = len(A)
     C = [[0]*n for _ in range(n)]
     for i in range(n):
@@ -40,19 +44,15 @@ def bmm(A, B):
                     if B[k][j]: C[i][j] = 1
     return C
 
-def bpow(M, p):
-    n = len(M)
-    R = [[1 if i==j else 0 for j in range(n)] for i in range(n)]
-    B = [row[:] for row in M]
-    while p:
-        if p & 1: R = bmm(R, B)
-        B = bmm(B, B)
-        p >>= 1
-    return R
-
-def mat_eq(A, B):
-    n = len(A)
-    return all(A[i][j] == B[i][j] for i in range(n) for j in range(n))
+def bmm_rect(A, B, ra, ca, cb):
+    """Boolean matrix multiply (rectangular): A[ra×ca] * B[ca×cb]."""
+    C = [[0]*cb for _ in range(ra)]
+    for i in range(ra):
+        for k in range(ca):
+            if A[i][k]:
+                for j in range(cb):
+                    if B[k][j]: C[i][j] = 1
+    return C
 
 def is_bij(M):
     n = len(M)
@@ -63,29 +63,45 @@ def lcm2(a, b): return a * b // gcd(a, b)
 def lcm_list(lst): return reduce(lcm2, lst) if lst else 1
 
 
-# ══════════════════════════════════════════════════════
-# Graph operations
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+#  VALIDATION
+# ═══════════════════════════════════════════════════════════════
+
+def check_self_disabling(T):
+    """
+    Self-disabling: for every (v,w,w') in T, no (v,w',_) exists in T.
+    Returns (is_valid, first_violation_or_None).
+    """
+    for v1, w1, wp1 in T:
+        for v2, w2, wp2 in T:
+            if v2 == v1 and w2 == wp1:
+                return False, ((v1,w1,wp1), (v2,w2,wp2))
+    return True, None
+
+
+# ═══════════════════════════════════════════════════════════════
+#  CORE GRAPH OPERATIONS: SCC, SHADOWS, FILTER
+# ═══════════════════════════════════════════════════════════════
 
 def scc_cycles(T):
-    """Transitions lying on directed cycles in H-graph (own[j]==written[i])."""
-    T = list(T)
-    n = len(T)
+    """Transitions on directed cycles in H-graph (t_j.own == t_i.written)."""
+    T = list(T); n = len(T)
     if n == 0: return frozenset()
     H = {i: [] for i in range(n)}
     for i, (vi,wi,wpi) in enumerate(T):
         for j, (vj,wj,wpj) in enumerate(T):
             if wj == wpi: H[i].append(j)
+    # Kosaraju's SCC
     visited = [False]*n; order = []
     def dfs1(u):
-        stack = [(u,0)]
-        while stack:
-            v,s = stack.pop()
+        stk = [(u,0)]
+        while stk:
+            v,s = stk.pop()
             if s == 0:
                 if visited[v]: continue
-                visited[v] = True; stack.append((v,1))
+                visited[v] = True; stk.append((v,1))
                 for w in H[v]:
-                    if not visited[w]: stack.append((w,0))
+                    if not visited[w]: stk.append((w,0))
             else: order.append(v)
     for i in range(n):
         if not visited[i]: dfs1(i)
@@ -94,12 +110,12 @@ def scc_cycles(T):
         for j in H[i]: Hr[j].append(i)
     visited2 = [False]*n; comps = []
     def dfs2(u):
-        comp = []; stack = [u]
-        while stack:
-            v = stack.pop()
+        comp = []; stk = [u]
+        while stk:
+            v = stk.pop()
             if visited2[v]: continue
             visited2[v] = True; comp.append(v)
-            for w in Hr[v]: stack.append(w)
+            for w in Hr[v]: stk.append(w)
         return comp
     for u in reversed(order):
         if not visited2[u]: comps.append(dfs2(u))
@@ -110,329 +126,423 @@ def scc_cycles(T):
         elif c and c[0] in H[c[0]]: on_cycle.add(c[0])
     return frozenset(T[i] for i in on_cycle)
 
+
 def shadows(P):
-    """Required shadow (v_i, v_j) for each H-edge (t_i -> t_j) in P."""
-    return {(vi, vj)
-            for (vi,wi,wpi) in P
-            for (vj,wj,wpj) in P
-            if wj == wpi}
+    """Global shadow set: {(t_i.pred, t_j.pred) for every H-edge (t_i→t_j) in P}."""
+    return {(vi, vj) for (vi,wi,wpi) in P for (vj,wj,wpj) in P if wj == wpi}
+
 
 def filter_T(T, req):
-    """Keep transitions whose (w, wp) matches a required shadow."""
+    """Keep transitions whose (own, written) ∈ req."""
     return frozenset((v,w,wp) for (v,w,wp) in T if (w,wp) in req)
 
 
-# ══════════════════════════════════════════════════════
-# Build matrix representations on a kernel
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+#  H AND E MATRIX CONSTRUCTION
+# ═══════════════════════════════════════════════════════════════
 
 def build_H_E(kernel_from, kernel_to=None):
     """
-    H[i][j] = 1  iff  t_j.own == t_i.written   (pseudolivelock step)
-
-    E[k][j] = 1  iff  there exists H-edge (t_i -> t_j) such that t_k.own == t_i.pred
-                       AND t_k.written == t_j.pred.  Multiple t_k may qualify
-                       (they share the same (own,written) but differ in pred).
-
-    Construction: for each H-edge (t_i -> t_j):
-      arc changes pred: t_i.pred -> t_j.pred
-      find ALL t_k in kernel_from: t_k.own=t_i.pred, t_k.written=t_j.pred
-      set E[k][j] = 1 for each such t_k  (arc-based forward map)
-
-    Result: E = H for protocols where pred==own (coloring-type).
-            E = I for protocols where written==pred (agreement-type).
+    H[i][j] = 1  iff  t_j.own == t_i.written   (pseudolivelock edges)
+    E[k][j] = 1  iff  ∃ H-edge (t_i→t_j): t_k.own==t_i.pred ∧ t_k.written==t_j.pred
+    Returns: (Kf_from, Kf_to, H, E)
     """
     Kf = sorted(kernel_from)
     Kt = sorted(kernel_to) if kernel_to else Kf
     nf, nt = len(Kf), len(Kt)
-
-    # (own,written) -> list of indices in Kf (may be multiple, differ only in pred)
-    from collections import defaultdict
     ow_f = defaultdict(list)
     for k, tk in enumerate(Kf):
         ow_f[(tk[1], tk[2])].append(k)
-
-    # H on Kt (square)
     H = [[0]*nt for _ in range(nt)]
     for i,ti in enumerate(Kt):
         for j,tj in enumerate(Kt):
             if tj[1] == ti[2]: H[i][j] = 1
-
-    # E: forward map Kf -> Kt
-    # For each H-edge (t_i -> t_j), ALL transitions t_k in Kf with
-    # t_k.own == t_i.pred AND t_k.written == t_j.pred are valid arc predecessors.
     E = [[0]*nt for _ in range(nf)]
     for i,ti in enumerate(Kt):
         for j,tj in enumerate(Kt):
             if not H[i][j]: continue
             for k in ow_f.get((ti[0], tj[0]), []):
                 E[k][j] = 1
-
     return Kf, Kt, H, E
 
 
-# ══════════════════════════════════════════════════════
-# Fixed point computation
-# ══════════════════════════════════════════════════════
+def _build_H(L):
+    """Quick H adjacency + sorted Kf."""
+    Kf = sorted(L); n = len(Kf)
+    H = [[0]*n for _ in range(n)]
+    for i,ti in enumerate(Kf):
+        for j,tj in enumerate(Kf):
+            if tj[1] == ti[2]: H[i][j] = 1
+    return H, Kf
 
-def phi_symmetric(S, T_full):
-    """One application of Phi: PL(Filter(S, Shad(PL(S)))), restricted to T_full."""
+
+# ═══════════════════════════════════════════════════════════════
+#  FIXED POINT: DECISION ALGORITHM
+# ═══════════════════════════════════════════════════════════════
+
+def phi(S, T_full):
+    """One Φ iteration: PL(Filter(T_full, Shad(PL(S))))."""
     P = scc_cycles(S)
-    if not P:
-        return frozenset()
-    sh = shadows(P)
-    return frozenset(scc_cycles(filter_T(frozenset(T_full), sh)))
+    if not P: return frozenset()
+    return frozenset(scc_cycles(filter_T(frozenset(T_full), shadows(P))))
 
 
-def inner_fixed_point(L_init, T_full, verbose=False, label="T_other"):
-    """
-    Compute the symmetric fixed point of Phi on T_full,
-    warm-started from L_init (already a subset of T_full).
-    L_init must satisfy L_init ⊆ T_full.
-    Returns L* = greatest fixed point of Phi within T_full
-    reachable by deflating from L_init.
-    """
-    S = frozenset(L_init)
-    k = 0
+def inner_fp(L_init, T_full, verbose=False, label="T"):
+    """Deflate from L_init to the greatest fixed point of Φ within T_full."""
+    S = frozenset(L_init); k = 0
     while True:
-        S2 = phi_symmetric(S, T_full)
+        S2 = phi(S, T_full)
         if S2 == S:
-            if verbose: print(f"    [{label} inner] fixed point at iter {k}: {len(S)} transitions")
+            if verbose: print(f"    [{label}] fixed point at iter {k}: {len(S)} transitions")
             return S
-        if verbose:
-            print(f"    [{label} inner] iter {k}: removed {sorted(S - S2)}")
-        S = S2
-        k += 1
+        if verbose: print(f"    [{label}] iter {k}: removed {sorted(S - S2)}")
+        S = S2; k += 1
 
 
 def fixed_point(T_p0, T_other, verbose=True):
     """
-    Algorithm 1 (Symmetric): if T_p0 == T_other, returns greatest fixed point of Phi.
-    Algorithm 2 (Asymmetric, 1-1): joint fixed-point iteration over (L_0, L_other).
-
-    Joint iteration (Knaster-Tarski on finite lattice):
-      Both L_0 and L_other are monotone decreasing.
-      Terminate when both stabilize (LIVELOCK) or either empties (FREE).
-      Warm-starting the inner fixed point gives O(|T|^3) total.
-
-    Returns (has_livelock, kern_p0, kern_other).
+    Algorithm 1 (symmetric) / Algorithm 2 ((1,1)-asymmetric).
+    Returns (has_livelock, kernel_p0, kernel_other).
     """
     symmetric = (frozenset(T_p0) == frozenset(T_other))
 
     if symmetric:
-        # ── Algorithm 1: Symmetric ─────────────────────────────────────────
-        if verbose: print("  [Symmetric] Running Phi fixed point on T")
-        L_star = inner_fixed_point(frozenset(T_p0), T_p0, verbose=verbose, label="T")
-        if not L_star:
-            if verbose: print("  => FREE (empty fixed point)")
+        if verbose: print("  [Symmetric] Phi fixed point")
+        L = inner_fp(frozenset(T_p0), T_p0, verbose=verbose)
+        if not L:
+            if verbose: print("  => FREE")
             return False, frozenset(), frozenset()
-        if verbose: print(f"  => LIVELOCK: L* = {sorted(L_star)}")
-        return True, L_star, L_star
+        if verbose: print(f"  => LIVELOCK: L* = {sorted(L)}")
+        return True, L, L
 
-    # ── Algorithm 2: (1,1)-Asymmetric joint fixed-point ────────────────────
-    if verbose: print("  [Asymmetric] Joint fixed-point iteration over (L_0, L_other)")
-
-    # Initialise: L_0 = PL(T_0), L_other = PL(T_other)
-    L0     = frozenset(scc_cycles(frozenset(T_p0)))
-    L_other = frozenset(scc_cycles(frozenset(T_other)))
-
-    if not L0:
-        if verbose: print("  P_0: no pseudolivelock => FREE")
-        return False, frozenset(), frozenset()
-    if not L_other:
-        if verbose: print("  T_other: no pseudolivelock => FREE")
+    if verbose: print("  [Asymmetric] Joint fixed point (L_0, L_other)")
+    L0 = frozenset(scc_cycles(frozenset(T_p0)))
+    Lo = frozenset(scc_cycles(frozenset(T_other)))
+    if not L0 or not Lo:
+        if verbose: print("  => FREE (empty initial PL)")
         return False, frozenset(), frozenset()
 
-    outer = 0
-    while True:
-        outer += 1
-        if verbose: print(f"  Outer iter {outer}: |L_0|={len(L0)}, |L_other|={len(L_other)}")
-
-        # Step 1: constrain L_other by what L_0 requests (warm-start from current L_other)
-        req_fwd = shadows(L0)
-        L_other_constrained = frozenset(filter_T(L_other, req_fwd))
-        L_other_new = inner_fixed_point(L_other_constrained, T_other,
-                                        verbose=verbose, label="L_other")
-        if verbose: print(f"    L_other_new = {sorted(L_other_new)}")
-
-        if not L_other_new:
+    for outer in range(1, len(T_p0) + len(T_other) + 2):
+        if verbose: print(f"  Outer {outer}: |L0|={len(L0)}, |Lo|={len(Lo)}")
+        Lo_new = inner_fp(filter_T(Lo, shadows(L0)), T_other, verbose=verbose, label="Lo")
+        if not Lo_new:
             if verbose: print("  => FREE (L_other emptied)")
             return False, frozenset(), frozenset()
-
-        # Step 2: ring closure — constrain L_0 by what L_other_new requests
-        req_back = shadows(L_other_new)
-        L0_new = frozenset(scc_cycles(filter_T(frozenset(T_p0), req_back)))
-        if verbose: print(f"    L_0_new = {sorted(L0_new)}")
-
+        L0_new = frozenset(scc_cycles(filter_T(frozenset(T_p0), shadows(Lo_new))))
         if not L0_new:
             if verbose: print("  => FREE (L_0 emptied)")
             return False, frozenset(), frozenset()
-
-        # Termination check: joint fixed point
-        if L0_new == L0 and L_other_new == L_other:
-            if verbose: print(f"  => LIVELOCK: joint fixed point reached")
-            return True, L0_new, L_other_new
-
-        L0      = L0_new
-        L_other = L_other_new
+        if L0_new == L0 and Lo_new == Lo:
+            if verbose: print("  => LIVELOCK: joint fixed point")
+            return True, L0_new, Lo_new
+        L0, Lo = L0_new, Lo_new
 
 
-# ══════════════════════════════════════════════════════
-# Circulation Law resolution (per process)
-# ══════════════════════════════════════════════════════
-
-def cycle_decomp(M, labels):
-    """Extract cycles from a bijective permutation matrix."""
-    n = len(M)
-    succ = {i: [j for j in range(n) if M[i][j]][0] for i in range(n)}
-    visited = set(); cycles = []
-    for s in range(n):
-        if s not in visited:
-            cyc = []; cur = s
-            while cur not in visited:
-                visited.add(cur); cyc.append(labels[cur]); cur = succ[cur]
-            if cyc: cycles.append(cyc)
-    return cycles
-
+# ═══════════════════════════════════════════════════════════════
+#  CIRCULATION LAW
+# ═══════════════════════════════════════════════════════════════
 
 def resolve_CL(kern_p0, kern_other, verbose=True):
-    """
-    Resolve Circulation Law to find valid (|E|, K) pairs.
-
-    Physical chain from P_1's perspective going around the ring:
-      P_1 -[E_other]-> P_2 -...- P_{K-1} -[Ecross]-> P_0 -[E0]-> P_1
-      = E_other^{K-2} then Ecross then E0   (left-to-right composition)
-
-    Circulation Law: H^|E| = chain(K)
-    where chain(K) = E_other^{K-2} * Ecross * E0_mat  (matrix multiplication)
-
-    For fully symmetric (kern_p0 == kern_other):
-      Ecross = E0_mat = E_other, so chain(K) = E_other^K
-      => H^|E| = E^K
-    """
+    """Find valid (|E|, K) pairs satisfying H^|E| ∩ E^K ≠ ∅."""
     if not kern_other: return
-
-    Ko = sorted(kern_other)
-    K0 = sorted(kern_p0)
-    no = len(Ko)
-    n0 = len(K0)
-
-    _, _, H, E_other = build_H_E(kern_other, kern_other)
-    _, _, _, E0_mat  = build_H_E(kern_p0, kern_other)   # K0 -> Ko  (propagation)
-    _, _, _, Ecross  = build_H_E(kern_other, kern_p0)   # Ko -> K0  (propagation)
-
-    def bmm_rect(A, B, nA_rows, nA_cols, nB_cols):
-        """General matrix multiply A[nA_rows x nA_cols] * B[nA_cols x nB_cols]."""
-        C = [[0]*nB_cols for _ in range(nA_rows)]
-        for i in range(nA_rows):
-            for k in range(nA_cols):
-                if A[i][k]:
-                    for j in range(nB_cols):
-                        if B[k][j]: C[i][j] = 1
-        return C
-
-    # For fully symmetric (kern_p0 == kern_other):
-    #   E0_mat = E_other, Ecross = E_other
-    #   => chain(K) = E_other^{K-2} * E_other * E_other = E_other^K = E^K
-    # For asymmetric (distinct P_0):
-    #   chain(K) = E_other^{K-2} * Ecross * E0_mat  (one special P_0 step)
-    # In both cases we call the K-step propagation E^K for display,
-    # where E = E_other for symmetric, and E = chain for asymmetric.
+    Ko = sorted(kern_other); K0 = sorted(kern_p0)
+    no, n0 = len(Ko), len(K0)
+    _, _, H, Eo = build_H_E(kern_other, kern_other)
+    _, _, _, E0 = build_H_E(kern_p0, kern_other)
+    _, _, _, Ex = build_H_E(kern_other, kern_p0)
 
     sym = (sorted(kern_p0) == sorted(kern_other))
-
     if verbose:
         print(f"\n  {'─'*50}")
-        print(f"  Circulation Law: H^|E| ∩ E^K != empty,  0 < |E| <= K")
-        if sym:
-            print(f"  E^K = E_other^K  (symmetric)")
-        else:
-            print(f"  E^K = E_other^{{K-2}} * Ecross * E0  (asymmetric)")
-        print(f"  {'─'*50}")
-        print(f"  H bijective:       {is_bij(H)}")
-        print(f"  E_other bijective: {is_bij(E_other)}")
+        print(f"  Circulation Law: H^|E| ∩ E^K ≠ ∅")
+        print(f"  H bij={is_bij(H)}, E_other bij={is_bij(Eo)}")
 
     def intersects(A, B):
-        n = len(A)
-        return any(A[i][j] and B[i][j] for i in range(n) for j in range(n))
+        return any(A[i][j] and B[i][j] for i in range(len(A)) for j in range(len(A)))
 
-    # Precompute E^K for K = 1..max_K
-    max_K = min(no * no + 6, 30)
-    max_E = max_K  # |E| <= K so max_E = max_K
-
-    E_powers = [None]   # index 0 unused, E_powers[k] = E^k
+    max_K = min(no*no + 6, 30)
+    Ep = [None]
     if sym:
-        # E^K = E_other^K
-        curr = [row[:] for row in E_other]
-        for k in range(1, max_K + 1):
-            E_powers.append([row[:] for row in curr])
-            curr = bmm(curr, E_other)
+        c = [r[:] for r in Eo]
+        for k in range(1, max_K+1):
+            Ep.append([r[:] for r in c]); c = bmm(c, Eo)
     else:
-        # E^K = E_other^{K-2} * Ecross * E0_mat
-        # Precompute iteratively: base = Ecross * E0
-        base = bmm_rect(Ecross, E0_mat, no, n0, no)  # K=1 and K=2
-        E_powers.append([row[:] for row in base])   # K=1
-        E_powers.append([row[:] for row in base])   # K=2
-        curr = [row[:] for row in base]
-        for k in range(3, max_K + 1):
-            curr = bmm_rect(E_other, curr, no, no, no)
-            E_powers.append([row[:] for row in curr])
+        base = bmm_rect(Ex, E0, no, n0, no)
+        Ep.append([r[:] for r in base]); Ep.append([r[:] for r in base])
+        c = [r[:] for r in base]
+        for k in range(3, max_K+1):
+            c = bmm_rect(Eo, c, no, no, no); Ep.append([r[:] for r in c])
 
-    # Search: 0 < |E| <= K
-    valid = []
-    H_curr = [row[:] for row in H]
-    for e_val in range(1, max_K + 1):
-        for K_val in range(max(e_val, 2), max_K + 1):   # K >= max(|E|, 2)
-            if intersects(H_curr, E_powers[K_val]):
-                valid.append((e_val, K_val))
-        if len(valid) >= 5:
-            break
-        H_curr = bmm(H_curr, H)
+    valid = []; Hc = [r[:] for r in H]
+    for e in range(1, max_K+1):
+        for K in range(max(e,2), max_K+1):
+            if intersects(Hc, Ep[K]): valid.append((e,K))
+        if len(valid) >= 5: break
+        Hc = bmm(Hc, H)
 
     if is_bij(H):
-        cycs = cycle_decomp(H, Ko)
-        lengths = [len(c) for c in cycs]
+        cycs = _perm_cycles(H, Ko)
         if verbose:
-            print(f"\n  H cycle decomposition:")
-            for c in cycs:
-                print(f"    ({len(c)}-cycle): "
-                      + " -> ".join(str(t) for t in c) + " ->")
-            print(f"  H order = LCM{lengths} = {lcm_list(lengths)}")
+            print(f"  H cycles: {['('+str(len(c))+'-cyc)' for c in cycs]}, "
+                  f"order={lcm_list([len(c) for c in cycs])}")
 
-    if valid:
-        min_E = valid[0][0]
-        min_K = valid[0][1]
-        if len(valid) >= 2:
-            # Infer period in K (step between consecutive K for same |E|)
-            same_E = [K for e,K in valid if e == min_E]
-            period_K = (same_E[1] - same_E[0]) if len(same_E) >= 2 else min_K
+    if verbose and valid:
+        print(f"  Valid (|E|,K): {valid[:5]}{'...' if len(valid)>5 else ''}")
+        print(f"  Min |E|={valid[0][0]}, min K={valid[0][1]}")
+    elif verbose:
+        print(f"  No valid (|E|,K) found up to K={max_K}")
+
+    return {'valid': bool(valid), 'pairs': valid}
+
+
+def _perm_cycles(M, labels):
+    """Extract permutation cycles from a bijective matrix."""
+    n = len(M)
+    succ = {i: next(j for j in range(n) if M[i][j]) for i in range(n)}
+    vis = set(); cycs = []
+    for s in range(n):
+        if s in vis: continue
+        c = []; cur = s
+        while cur not in vis:
+            vis.add(cur); c.append(labels[cur]); cur = succ[cur]
+        if c: cycs.append(c)
+    return cycs
+
+
+# ═══════════════════════════════════════════════════════════════
+#  SIMPLE CYCLE ENUMERATION
+# ═══════════════════════════════════════════════════════════════
+
+def find_simple_cycles(H, Kf):
+    """All simple cycles in directed graph H, canonicalized."""
+    n = len(Kf); raw = []
+    def dfs(s, u, path, pset):
+        for v in range(n):
+            if not H[u][v]: continue
+            if v == s and len(path) >= 2: raw.append(tuple(path))
+            elif v > s and v not in pset:
+                pset.add(v); path.append(v)
+                dfs(s, v, path, pset)
+                path.pop(); pset.remove(v)
+    for s in range(n): dfs(s, s, [s], {s})
+    seen = set(); out = []
+    for c in raw:
+        canon = min(c[i:]+c[:i] for i in range(len(c)))
+        if canon not in seen:
+            seen.add(canon); out.append(tuple(Kf[v] for v in c))
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════
+#  PER-EDGE H* REFINEMENT
+# ═══════════════════════════════════════════════════════════════
+
+def refine_H(H, Kf, L_pred):
+    """Remove H-edges whose shadow (pred_i, pred_j) has no witness in L_pred.
+    In valid self-disabling protocols this is a no-op (theorem)."""
+    n = len(Kf); ow = {(t[1],t[2]) for t in L_pred}
+    Hr = [[0]*n for _ in range(n)]; dead = []
+    for i in range(n):
+        for j in range(n):
+            if not H[i][j]: continue
+            s = (Kf[i][0], Kf[j][0])
+            if s in ow: Hr[i][j] = 1
+            else: dead.append((Kf[i], Kf[j], s))
+    return Hr, dead
+
+
+# ═══════════════════════════════════════════════════════════════
+#  PER-CYCLE SHADOW + ENABLING WALK ENUMERATION
+# ═══════════════════════════════════════════════════════════════
+
+def per_cycle_shadows(cycle):
+    """Shadow for each H-edge in a simple cycle."""
+    n = len(cycle)
+    return [(cycle[k][0], cycle[(k+1)%n][0]) for k in range(n)]
+
+
+def shadow_witnesses(shadow, T_pred):
+    """Transitions in T_pred with own==shadow[0], written==shadow[1]."""
+    a, b = shadow
+    return [t for t in T_pred if t[1] == a and t[2] == b]
+
+
+def enabling_walks(cycle_r, L_pred, H_pred, Kf_pred, max_walks=50):
+    """
+    Enumerate closed walks of length |cycle_r| in H*(L_pred) that enable cycle_r.
+    Walk position k must be a shadow witness for H-edge (cycle_r[k], cycle_r[k+1]).
+    """
+    N = len(cycle_r)
+    wits = []
+    for k in range(N):
+        s = (cycle_r[k][0], cycle_r[(k+1)%N][0])
+        wits.append(shadow_witnesses(s, L_pred))
+    if any(len(w)==0 for w in wits): return []
+
+    pidx = {t:i for i,t in enumerate(Kf_pred)}
+    walks = []
+
+    def dfs(pos, path):
+        if len(walks) >= max_walks: return
+        if pos == N:
+            li, fi = pidx.get(path[-1],-1), pidx.get(path[0],-1)
+            if li >= 0 and fi >= 0 and H_pred[li][fi]:
+                walks.append(tuple(path))
+            return
+        for w in wits[pos]:
+            pi, wi = pidx.get(path[-1],-1), pidx.get(w,-1)
+            if pi >= 0 and wi >= 0 and H_pred[pi][wi]:
+                dfs(pos+1, path+[w])
+
+    for w0 in wits[0]: dfs(1, [w0])
+    return walks
+
+
+# ═══════════════════════════════════════════════════════════════
+#  CYCLE PROPAGATION MAP
+# ═══════════════════════════════════════════════════════════════
+
+def build_propagation_map(L_r, L_pred, verbose=False):
+    """
+    For each simple cycle in H*(L_r), find its enabling walks in H*(L_pred)
+    and identify which predecessor simple cycle each walk corresponds to.
+
+    Returns: (prop_map, cycles_r, cycles_pred)
+    """
+    H_r_raw, Kf_r = _build_H(L_r)
+    H_p_raw, Kf_p = _build_H(L_pred)
+    H_r, dead_r = refine_H(H_r_raw, Kf_r, L_pred)
+    H_p, dead_p = refine_H(H_p_raw, Kf_p, L_r)
+
+    if verbose and (dead_r or dead_p):
+        for ti,tj,s in dead_r:
+            print(f"  ⚠ Dead edge in P_r: {ti}->{tj} shadow {s}")
+        for ti,tj,s in dead_p:
+            print(f"  ⚠ Dead edge in P_pred: {ti}->{tj} shadow {s}")
+
+    cyc_r = find_simple_cycles(H_r, Kf_r)
+    cyc_p = find_simple_cycles(H_p, Kf_p)
+
+    # Edge→cycle index lookup for predecessor
+    edge2cyc = defaultdict(list)
+    for ci, c in enumerate(cyc_p):
+        nc = len(c)
+        for k in range(nc):
+            edge2cyc[(c[k], c[(k+1)%nc])].append(ci)
+
+    prop_map = {}
+    for ci, cyc in enumerate(cyc_r):
+        walks = enabling_walks(cyc, L_pred, H_p, Kf_p)
+        walk_info = []
+        for w in walks:
+            # Identify which predecessor cycle this walk IS
+            N = len(w)
+            walk_edges = [(w[k], w[(k+1)%N]) for k in range(N)]
+            # Greedy edge-set cover
+            remaining = Counter({e:1 for e in walk_edges})
+            conj = []
+            while sum(remaining.values()) > 0:
+                best, best_n = -1, 0
+                for pi, pc in enumerate(cyc_p):
+                    nc = len(pc)
+                    pes = {(pc[k], pc[(k+1)%nc]) for k in range(nc)}
+                    n = sum(1 for e in pes if remaining.get(e,0) > 0)
+                    if n > best_n: best, best_n = pi, n
+                if best < 0: break
+                conj.append(best)
+                nc = len(cyc_p[best])
+                for k in range(nc):
+                    e = (cyc_p[best][k], cyc_p[best][(k+1)%nc])
+                    if remaining.get(e,0) > 0: remaining[e] -= 1
+                    if remaining.get(e,0) == 0 and e in remaining: del remaining[e]
+            conj_unique = tuple(sorted(set(conj)))
+
+            # Find cyclic shift if single-cycle conjunction
+            shift = None
+            if len(conj_unique) == 1:
+                pc = cyc_p[conj_unique[0]]
+                if len(pc) == N:
+                    for s in range(N):
+                        if all(w[k] == pc[(k+s)%N] for k in range(N)):
+                            shift = s; break
+
+            walk_info.append({
+                'walk': w, 'conjunction': conj_unique,
+                'shift': shift, 'is_simple': len(w) == len(set(w))
+            })
+
+        prop_map[ci] = {'cycle': cyc, 'length': len(cyc), 'walks': walk_info}
+
+    return prop_map, cyc_r, cyc_p
+
+
+# ═══════════════════════════════════════════════════════════════
+#  BIPARTITE PERMUTATION ANALYSIS
+# ═══════════════════════════════════════════════════════════════
+
+def permutation_analysis(prop_map, cyc_r, cyc_p, verbose=True):
+    """
+    Extract the cycle-level permutation σ: C_r[i] ↦ C_pred[j].
+    Show that E decomposes into bijective shift-components.
+    """
+    perm = {}
+    for ci, info in prop_map.items():
+        if not info['walks']: continue
+        # Take the first walk; prefer single-cycle conjunction
+        for wd in info['walks']:
+            if len(wd['conjunction']) == 1:
+                perm[ci] = wd['conjunction'][0]
+                break
         else:
-            period_K = min_K
+            perm[ci] = info['walks'][0]['conjunction']  # tuple
 
-        if verbose:
-            print(f"\n  Valid (|E|, K) pairs (first {len(valid)}):")
-            for e,K in valid:
-                print(f"    |E|={e}, K={K}  "
-                      f"(|E| mod m = {e % (no if no>0 else 1)}, "
-                      f"K mod m = {K % (no if no>0 else 1)})")
-            print(f"\n  Minimum |E| = {min_E},  minimum K = {min_K}")
-            print(f"  K step = {period_K}")
-            print(f"  Pattern: |E| = {min_E} + {lcm_list([c for c in [len(cc) for cc in (cycle_decomp(H,Ko) if is_bij(H) else [[]])]]) if is_bij(H) else '?'}*t,  "
-                  f"K = {min_K} + {period_K}*s")
+    if verbose:
+        print(f"\n  ╔══ CYCLE-LEVEL PERMUTATION σ ══╗")
+        all_single = all(isinstance(v, int) for v in perm.values())
+        for ci in sorted(perm):
+            cj = perm[ci]
+            info = prop_map[ci]
+            shift = None
+            for wd in info['walks']:
+                if len(wd['conjunction']) == 1 and wd['conjunction'][0] == cj:
+                    shift = wd['shift']; break
+            is_simple = all(wd['is_simple'] for wd in info['walks'])
+            sh = f"z^{shift}" if shift is not None else "?"
+            fp = " (fixed)" if cj == ci else ""
+            print(f"    C[{ci}](len={len(cyc_r[ci])}) → C[{cj}](len={len(cyc_p[cj])}) "
+                  f"shift={sh} simple={is_simple}{fp}")
 
-        return {'valid': True, 'min_E': min_E, 'min_K': min_K,
-                'period_K': period_K, 'pairs': valid}
-    else:
-        if verbose:
-            print(f"  No valid (|E|, K) found in search range "
-                  f"(|E| <= {max_E}, K <= {max_K})")
-        return {'valid': False}
+        if all_single:
+            dom = sorted(perm.keys()); rng = sorted(perm.values())
+            bij = (dom == rng)
+            print(f"\n  Bijective permutation: {bij}")
+
+            # Permutation cycle decomposition
+            vis = set(); orbits = []
+            for s in sorted(perm):
+                if s in vis: continue
+                orb = []; cur = s
+                while cur not in vis:
+                    vis.add(cur); orb.append(cur); cur = perm[cur]
+                orbits.append(orb)
+
+            print(f"  Orbits of σ:")
+            for orb in orbits:
+                if len(orb) == 1:
+                    print(f"    Fixed: C[{orb[0]}](len={len(cyc_r[orb[0]])})")
+                else:
+                    ch = " → ".join(f"C[{c}]" for c in orb)
+                    print(f"    ({len(orb)}-orbit): {ch} → C[{orb[0]}]")
+
+            order = lcm_list([len(o) for o in orbits]) if orbits else 1
+            print(f"  Order of σ: {order}")
+
+    return perm
 
 
-
-# ══════════════════════════════════════════════════════
-# Complete analysis
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+#  TOP-LEVEL ANALYSIS
+# ═══════════════════════════════════════════════════════════════
 
 def analyze(name, T_p0, T_other=None, expect=None, m=None):
     if T_other is None: T_other = T_p0
@@ -443,355 +553,146 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None):
     if expect: print(f"  Expected: {expect}")
     print(f"{'═'*60}")
 
-    # Handle empty transition sets gracefully
-    if not T_p0 and not T_other:
-        print(f"  Empty protocol => NO LIVELOCK")
-        print(f"\n  => NO LIVELOCK")
-        return False
     if not T_p0:
-        if m is None and T_other:
-            m = max(max(v,w,wp) for v,w,wp in T_other) + 1
-        print(f"  m={m}, P_0=0 (empty) => NO LIVELOCK")
-        print(f"\n  => NO LIVELOCK")
-        return False
-    all_T = list(T_p0) + list(T_other if T_other else [])
-    if m is None:
-        m = max(max(v,w,wp) for v,w,wp in all_T) + 1
-    print(f"  m={m}, P_0={len(T_p0)}, P_other={len(T_other)}, sym={sym}")
-    print()
+        print("  Empty => NO LIVELOCK"); return False
+
+    all_T = list(T_p0) + list(T_other)
+    if m is None: m = max(max(v,w,wp) for v,w,wp in all_T) + 1
+    print(f"  m={m}, |T_p0|={len(T_p0)}, |T_other|={len(T_other)}, sym={sym}")
+
+    sd0, v0 = check_self_disabling(T_p0)
+    sd1, v1 = check_self_disabling(T_other)
+    if not sd0:
+        print(f"  ✗ P_0 NOT self-disabling: {v0}"); return False
+    if not sd1:
+        print(f"  ✗ P_other NOT self-disabling: {v1}"); return False
 
     has_ll, k0, ko = fixed_point(T_p0, T_other, verbose=True)
 
     if has_ll:
-        print(f"\n  P_0 kernel   : {sorted(k0)}")
-        print(f"  P_other kernel: {sorted(ko)}")
+        print(f"\n  Kernel P0: {sorted(k0)}")
+        print(f"  Kernel Po: {sorted(ko)}")
         resolve_CL(k0, ko, verbose=True)
-        if sym:
-            structural_analysis(ko, label_r="L*")
-        else:
-            # Interface 1: P_other -> P_other
-            structural_analysis(ko, label_r="L*_others")
-            # Interface 2: P_0 -> P_other
-            structural_analysis(k0, ko, label_r="L*_0", label_r1="L*_others")
-            # Interface 3: P_other -> P_0
-            structural_analysis(ko, k0, label_r="L*_others", label_r1="L*_0")
 
-    correct = (has_ll == (expect == "LIVELOCK")) if expect else None
-    tag = "✓" if correct else ("✗" if correct is False else "")
-    print(f"\n  => {'LIVELOCK' if has_ll else 'NO LIVELOCK'} {tag}")
+        # Per-cycle structural analysis (symmetric self-propagation)
+        L = ko  # use P_other kernel for the cycle analysis
+        H, Kf = _build_H(L)
+        nc = len(find_simple_cycles(H, Kf))
+        if nc <= 200:
+            print(f"\n  ── Cycle Propagation Analysis ({nc} simple cycles) ──")
+            pm, cr, cp = build_propagation_map(L, L, verbose=True)
+
+            # Conjunction table
+            print(f"\n  ╔══ CONJUNCTION TABLE ══╗")
+            shown = 0
+            for ci, info in pm.items():
+                if shown >= 30: print(f"  ... ({len(pm)-30} more)"); break
+                shown += 1
+                ws = info['walks']
+                if not ws:
+                    print(f"  C[{ci}](len={info['length']}): ✗ no enabling walk")
+                    continue
+                conjs = set(wd['conjunction'] for wd in ws)
+                for cj in sorted(conjs):
+                    if len(cj)==1:
+                        sh = next((wd['shift'] for wd in ws if wd['conjunction']==cj), None)
+                        tag = f"z^{sh}" if sh is not None else ""
+                        fp = " (self)" if cj[0]==ci else ""
+                        print(f"  C[{ci}](len={info['length']}) ← C[{cj[0]}](len={len(cp[cj[0]])})"
+                              f" {tag}{fp}")
+                    else:
+                        parts = " ∧ ".join(f"C[{x}]" for x in cj)
+                        print(f"  C[{ci}](len={info['length']}) ← conjunction: {parts}")
+
+            permutation_analysis(pm, cr, cp, verbose=True)
+        else:
+            print(f"\n  {nc} simple cycles (structural analysis skipped — too many)")
+
+    ok = (has_ll == (expect=="LIVELOCK")) if expect else None
+    tag = " ✓" if ok else (" ✗" if ok is False else "")
+    print(f"\n  => {'LIVELOCK' if has_ll else 'NO LIVELOCK'}{tag}")
     return has_ll
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STRUCTURAL ANALYSIS: Cycle Basis, E_ij Decomposition, Propagation Law
-# ══════════════════════════════════════════════════════════════════════════════
-
-def cycle_to_edge_set(cycle):
-    """Represent a cycle as a frozenset of directed edges."""
-    n = len(cycle)
-    return frozenset((cycle[i], cycle[(i+1)%n]) for i in range(n))
-
-def or_ear_decomposition(H, Kf):
-    """
-    OR-based ear decomposition: find the minimal set of simple cycles
-    whose UNION covers all edges of H* (using set-union, not GF(2) XOR).
-    These are the atoms of the transition-set algebra used by E*.
-    Returns (ears, complete) where ears is a list of cycle tuples.
-    """
-    n = len(Kf)
-    cycles = []
-    def dfs(start, cur, path, path_set):
-        for nxt in range(n):
-            if not H[cur][nxt]: continue
-            if nxt == start and len(path) >= 2:
-                cycles.append(tuple(path))
-            elif nxt > start and nxt not in path_set:
-                path_set.add(nxt); path.append(nxt)
-                dfs(start, nxt, path, path_set)
-                path.pop(); path_set.remove(nxt)
-    for s in range(n):
-        dfs(s, s, [s], {s})
-    seen = set()
-    unique = []
-    for c in cycles:
-        canon = min(c[i:]+c[:i] for i in range(len(c)))
-        if canon not in seen:
-            seen.add(canon)
-            unique.append(tuple(Kf[v] for v in c))
-    unique.sort(key=len)
-
-    all_edges = {(i,j) for i in range(n) for j in range(n) if H[i][j]}
-    covered = set()
-    ears = []
-    for cyc in unique:
-        c_idx = tuple(Kf.index(t) for t in cyc)
-        c_edges = {(c_idx[k], c_idx[(k+1)%len(c_idx)]) for k in range(len(c_idx))}
-        new_edges = c_edges - covered
-        if new_edges:
-            ears.append(cyc)
-            covered |= c_edges
-        if covered == all_edges:
-            break
-    return ears, covered == all_edges
-
-
-    """Represent a cycle as a frozenset of directed edges."""
-    n = len(cycle)
-    return frozenset((cycle[i], cycle[(i+1)%n]) for i in range(n))
-
-def compute_cycle_basis(H, Kf):
-    """
-    Compute a minimum cycle basis for H* using GF(2) Gaussian elimination.
-    Cycles sorted by length first (shortest basis).
-    Returns (basis, all_simple_cycles).
-    """
-    from itertools import product as iproduct
-    n = len(Kf)
-
-    # Find all simple cycles
-    cycles = []
-    def dfs(start, cur, path, path_set):
-        for nxt in range(n):
-            if not H[cur][nxt]: continue
-            if nxt == start and len(path) >= 2:
-                cycles.append(tuple(path))
-            elif nxt > start and nxt not in path_set:
-                path_set.add(nxt); path.append(nxt)
-                dfs(start, nxt, path, path_set)
-                path.pop(); path_set.remove(nxt)
-    for s in range(n):
-        dfs(s, s, [s], {s})
-    seen = set()
-    unique = []
-    for c in cycles:
-        canon = min(c[i:]+c[:i] for i in range(len(c)))
-        if canon not in seen:
-            seen.add(canon)
-            unique.append(tuple(Kf[v] for v in c))
-
-    # GF(2) Gaussian elimination (shortest first)
-    sorted_cycles = sorted(unique, key=len)
-    basis = []
-    basis_vecs = []
-    pivot_cols = {}
-    for cycle in sorted_cycles:
-        vec = cycle_to_edge_set(cycle)
-        reduced = vec
-        for edge, bidx in pivot_cols.items():
-            if edge in reduced:
-                reduced = reduced.symmetric_difference(basis_vecs[bidx])
-        if reduced:
-            basis.append(cycle)
-            basis_vecs.append(reduced)
-            pivot = min(reduced, key=str)
-            pivot_cols[pivot] = len(basis_vecs)-1
-    return basis, unique
-
-def get_eij_bijection(C1, C2, E, Kf):
-    """
-    Return E_ij: C1->C2 as dict {t_k: t_j} if it is a bijection, else None.
-    """
-    if len(C1) != len(C2): return None
-    c1_idx = [Kf.index(t) for t in C1]
-    c2_idx = [Kf.index(t) for t in C2]
-    edges = [(Kf[ii], Kf[jj]) for ii in c1_idx for jj in c2_idx if E[ii][jj]]
-    targets = [tj for _,tj in edges]
-    sources = [ti for ti,_ in edges]
-    if (len(edges) != len(C1) or len(set(targets)) != len(C1) or
-        len(set(sources)) != len(C1) or set(targets) != set(C2)):
-        return None
-    return dict(edges)
-
-def check_propagation_law_bij(bij, C_i, C_j):
-    """
-    Check restricted propagation law: E_ij(H_Ci(t)) = H_Cj(E_ij(t))
-    for all t in C_i. Returns True if holds.
-    """
-    Hci = {C_i[k]: C_i[(k+1)%len(C_i)] for k in range(len(C_i))}
-    Hcj = {C_j[k]: C_j[(k+1)%len(C_j)] for k in range(len(C_j))}
-    return all(bij[Hci[t]] == Hcj[bij[t]] for t in C_i)
-
-def structural_analysis(L_r, L_r1=None, label_r="L*", label_r1=None):
-    """
-    Full structural analysis:
-    1. Cycle basis of H*(L_r)
-    2. E_ij decomposition between basis cycles
-    3. Propagation law check for each E_ij
-    4. Cross-process analysis if L_r1 provided
-    """
-    if L_r1 is None:
-        L_r1 = L_r
-    if label_r1 is None:
-        label_r1 = label_r
-
-    Kfr, _, Hr, Er = build_H_E(L_r, L_r)
-    Kfr1, _, Hr1, Er1 = build_H_E(L_r1, L_r1)
-
-    print(f"\n{'='*60}")
-    print(f"Structural analysis: {label_r}")
-    print(f"{'='*60}")
-
-    # Cycle basis: GF(2) for dimension, OR ears for E_ij analysis
-    gf2_basis, _ = compute_cycle_basis(Hr, Kfr)
-    ears_r, complete = or_ear_decomposition(Hr, Kfr)
-    nr = len(Kfr)
-    n_edges = sum(Hr[i][j] for i in range(nr) for j in range(nr))
-    from collections import deque as _dq
-    _vis = set(); _nc = 0
-    for _s in range(nr):
-        if _s in _vis: continue
-        _nc += 1; _q = _dq([_s])
-        while _q:
-            _u = _q.popleft()
-            if _u in _vis: continue
-            _vis.add(_u)
-            for _v in range(nr):
-                if Hr[_u][_v] or Hr[_v][_u]: _q.append(_v)
-    print(f"|L*| = {nr}, H* edges = {n_edges}, components = {_nc}")
-    print(f"GF(2) basis size = {n_edges - nr + _nc}  |  OR ears = {len(ears_r)}  (complete={complete})")
-    print(f"OR-based ears (atoms for E_ij analysis):")
-    for i,c in enumerate(ears_r):
-        chain = " --> ".join(str(t) for t in c) + f" --> {c[0]}"
-        print(f"  EAR{i+1}(len={len(c)}): {chain}")
-
-    # E_ij: restrict actual E* to each ear pair (C_i, C_j)
-    # Do NOT search for bijections between arbitrary same-length pairs.
-    # Instead: for each ear C_i, see where E* sends its transitions,
-    # group by target ear, and check equivariance on those restrictions.
-    print(f"\nE_ij from actual E* restriction to ear pairs ({label_r} -> {label_r}):")
-    bij_count = 0; prop_pass = 0; prop_fail = 0
-    for i, Ci in enumerate(ears_r):
-        # Find all E*-images of transitions in Ci
-        ci_idx = [Kfr.index(t) for t in Ci]
-        # Group images by which ear they land in
-        ear_images = {}  # j -> {t: t'}
-        for ii, t in zip(ci_idx, Ci):
-            imgs = [Kfr[jj] for jj in range(nr) if Er[ii][jj]]
-            for tj in imgs:
-                # Find which ear tj belongs to
-                for j, Cj in enumerate(ears_r):
-                    if tj in Cj:
-                        if j not in ear_images: ear_images[j] = {}
-                        if t in ear_images[j]:
-                            # multiple images to same ear -- not a bijection
-                            ear_images[j][t] = None  # mark as non-bijective
-                        else:
-                            ear_images[j][t] = tj
-        # For each target ear, check if restriction is a bijection and equivariant
-        for j, mapping in sorted(ear_images.items()):
-            Cj = ears_r[j]
-            if None in mapping.values(): continue
-            if len(mapping) != len(Ci): continue
-            targets = list(mapping.values())
-            if len(set(targets)) != len(targets): continue
-            if set(targets) != set(Cj): continue
-            ok = check_propagation_law_bij(mapping, Ci, Cj)
-            if not ok: continue   # not a genuine morphism -- skip
-            tag = f"EAR{i+1}->EAR{j+1}" if i != j else f"EAR{i+1}->EAR{i+1} (self)"
-            print(f"  {tag}(len={len(Ci)}->{len(Cj)}): prop=✓")
-            print(f"    {mapping}")
-            bij_count += 1
-            prop_pass += 1
-    print(f"  [{bij_count} equivariant E_ij morphisms]")
-
-    # Cross-process E_ij if L_r1 != L_r
-    if L_r1 != L_r:
-        ears_r1, _ = or_ear_decomposition(Hr1, Kfr1)
-        print(f"\nCross-process E_ij ({label_r} -> {label_r1}):")
-        Kf_src, Kt_tgt, H_cross, E_cross = build_H_E(L_r, L_r1)
-
-        def get_eij_cross(C1, C2, E, Ksrc, Ktgt):
-            if len(C1) != len(C2): return None
-            try:
-                c1_idx = [Ksrc.index(t) for t in C1]
-                c2_idx = [Ktgt.index(t) for t in C2]
-            except ValueError:
-                return None
-            edges = [(Ksrc[ii], Ktgt[jj]) for ii in c1_idx for jj in c2_idx if E[ii][jj]]
-            targets = [tj for _,tj in edges]
-            sources = [ti for ti,_ in edges]
-            if (len(edges) != len(C1) or len(set(targets)) != len(C1) or
-                len(set(sources)) != len(C1) or set(targets) != set(C2)):
-                return None
-            return dict(edges)
-
-        bij_count_x = 0; prop_pass_x = 0; prop_fail_x = 0
-        for i, Ci in enumerate(ears_r):
-            try: ci_idx = [Kf_src.index(t) for t in Ci]
-            except ValueError: continue
-            ear_images = {}
-            for ii, t in zip(ci_idx, Ci):
-                imgs = [Kt_tgt[jj] for jj in range(len(Kt_tgt)) if E_cross[ii][jj]]
-                for tj in imgs:
-                    for j, Cj in enumerate(ears_r1):
-                        if tj in Cj:
-                            if j not in ear_images: ear_images[j] = {}
-                            if t in ear_images[j]:
-                                ear_images[j][t] = None
-                            else:
-                                ear_images[j][t] = tj
-            for j, mapping in sorted(ear_images.items()):
-                Cj = ears_r1[j]
-                if None in mapping.values(): continue
-                if len(mapping) != len(Ci): continue
-                targets = list(mapping.values())
-                if len(set(targets)) != len(targets): continue
-                if set(targets) != set(Cj): continue
-                ok = check_propagation_law_bij(mapping, Ci, Cj)
-                if not ok: continue
-                print(f"  Er{i+1}->Er1_{j+1}(len={len(Ci)}->{len(Cj)}): prop=✓")
-                print(f"    {mapping}")
-                bij_count_x += 1
-                prop_pass_x += 1
-        print(f"  [{bij_count_x} equivariant E_ij morphisms]")
-
-    return ears_r
-
-# ══════════════════════════════════════════════════════
-# Tests
-# ══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+#  TEST SUITE
+# ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
 
-    for m in [3, 4, 5, 50]:
-        T0  = [(v, v, (v+1)%m) for v in range(m)]
-        To  = [(v, w, v) for v in range(m) for w in range(m) if v != w]
+    # Dijkstra token ring (asymmetric)
+    for m in [3, 4, 5]:
+        T0 = [(v, v, (v+1)%m) for v in range(m)]
+        To = [(v, w, v) for v in range(m) for w in range(m) if v != w]
         analyze(f"Dijkstra (m={m})", T0, To, "LIVELOCK")
 
+    # Sum-Not-2 deterministic
     m = 3
     analyze("Sum-Not-2 det (m=3)",
-            [(v,w,(w+1)%m) for v in range(m) for w in range(m)
-             if (v+w)%m == m-1],
+            [(v,w,(w+1)%m) for v in range(m) for w in range(m) if (v+w)%m == m-1],
             expect="NO LIVELOCK")
 
+    # Coloring deterministic
     analyze("3-Coloring det (m=3)",
             [(v,w,(w+1)%m) for v in range(m) for w in range(m) if w==v],
             expect="LIVELOCK")
 
-    analyze("Simple 2-cycle (m=2)",
-            [(0,1,0),(1,0,1)], expect="LIVELOCK")
+    # Simple 2-cycle
+    analyze("Simple 2-cycle (m=2)", [(0,1,0),(1,0,1)], expect="LIVELOCK")
 
+    # Always-write-0
     analyze("Always-write-0 (m=3)",
             [(v,w,0) for v in range(3) for w in range(3) if w!=0],
             expect="NO LIVELOCK")
 
+    # Non-det dead-ends
     analyze("Non-det dead-ends (m=3)",
             [(0,1,0),(0,1,2),(1,0,1),(2,1,2)], expect="LIVELOCK")
 
+    # Maximal agreement
     m = 4
-    analyze("AI Proposed Protocol (m=4)",
-            [(v, w, (w + 2)%m) for v in range(m) for w in range(m) if w == v or w == (v + 1)%m],
-            expect="LIVELOCK")
-
-    m = 4
-    analyze("Non Deterministic Coloring (m=4)",
-            [(v, v, w) for v in range(m) for w in range(m) if v != w],
-            expect="LIVELOCK")
-
-    m = 4
-    analyze("Agreement (m=4)",
+    analyze("Maximal agreement (m=4)",
             [(v, w, v) for v in range(m) for w in range(m) if v != w],
             expect="LIVELOCK")
 
-    print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
+    # Non-det coloring
+    analyze("Non-det coloring (m=4)",
+            [(v, v, w) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
 
+    # Non-det sum-not-2
+    m = 3
+    analyze("Non-det sum-not-2 (m=3)",
+            [(m-1-v, v, w) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
+
+    # Maximal agreement m=3
+    analyze("Maximal agreement (m=3)",
+            [(v, w, v) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
+
+    # Non-det coloring m=3
+    analyze("Non-det coloring (m=3)",
+            [(v, v, w) for v in range(m) for w in range(m) if v != w],
+            expect="LIVELOCK")
+
+    # 8-Transitions Non-Deterministic
+    analyze("8-transitions Non-Deterministic",
+            [(v,w,(w+2)%4) for v in range(4) for w in range(4) if v == w or w == (v+1)%4],
+            expect="LIVELOCK")
+
+    # Asymmetric Coloring
+    analyze("Asymmetric 3-Coloring",
+            [(v, v, (v + 2)%3) for v in range(3)],
+            [(v, v, (v + 1)%3) for v in range(3)],
+            expect="NO LIVELOCK")
+            
+    # Non-Deterministic offset diff
+    m = 4
+    offset = 3
+    analyze("Non-deterministic Offset Diff",
+            [(v, (v + offset)%m, w) for v in range(m) for w in range(m) if w != (v + offset)%m],
+            expect="LIVELOCK"
+            ) 
+
+    print(f"\n{'═'*60}\n  DONE\n{'═'*60}")
