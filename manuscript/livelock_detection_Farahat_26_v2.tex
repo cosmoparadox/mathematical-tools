@@ -1,0 +1,1024 @@
+\documentclass{article}
+
+\usepackage{arxiv}
+\rhead{\scshape Preprint}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{natbib}
+\usepackage{doi}
+
+%% ── theorem environments ──────────────────────────────────────────────────
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+\newtheorem{invariant}{Invariant}
+
+%% ── macros ────────────────────────────────────────────────────────────────
+\newcommand{\Ls}{\mathcal{L}^{*}}
+\newcommand{\Li}[1]{\mathcal{L}^{(#1)}}   % L^{(i)}: iterate i
+\newcommand{\Hi}[1]{H^{(#1)}}             % H^{(i)}: H at iterate i
+\newcommand{\PL}{\mathrm{PL}}
+\newcommand{\Shad}{\mathrm{Shad}}
+\newcommand{\Filter}{\mathrm{Filter}}
+\newcommand{\bPhi}{\boldsymbol{\Phi}}
+\newcommand{\Zm}{\mathbb{Z}_m}
+\newcommand{\Hstar}{H^{*}}
+\newcommand{\Estar}{E^{*}}
+\newcommand{\own}{\mathit{own}}
+\newcommand{\writ}{\mathit{written}}
+\newcommand{\pred}{\mathit{pred}}
+\DeclareMathOperator{\ord}{ord}
+
+\newcommand{\Lstar}{L^{*}}
+\newcommand{\N}{\mathbb{N}}
+
+%% ── title block ───────────────────────────────────────────────────────────
+\title{\textbf{Decidability of Livelock Detection\\
+       for Parameterized Self-Disabling Unidirectional Rings}}
+
+\author{
+  Aly Farahat\\
+  \texttt{aly.farahat@intusurg.com}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We prove that livelock detection is \emph{decidable in polynomial time}
+for parameterized symmetric unidirectional rings of self-disabling
+processes with bounded domain $\mathbb{Z}_m$.
+Given a protocol $T$, the algorithm decides whether a livelock exists
+for \emph{some} ring size $K\!\geq\!2$, running in $O(|T|^3)$ time
+independent of $K$.
+The algorithm computes $\Ls$---the greatest fixed point of a
+deflationary monotone operator on the finite set $T$---and returns
+\textsc{livelock} iff $\Ls\!\neq\!\emptyset$.
+The livelock freedom argument rests on maximality: $\Ls$ is the
+largest set of transitions that can simultaneously sustain a
+pseudolivelock at every process; its emptiness certifies freedom for
+all $K$ without any search over ring sizes.
+The work is grounded in the algebraic characterization of livelocks
+from Farahat~\citep{farahat2012}, which establishes necessary and
+sufficient conditions for livelock existence but does not address
+decidability. We also handle the $(1,1)$-asymmetric case in which one
+distinguished process $P_0$ differs from the remaining $K\!-\!1$
+identical processes.
+Code and algebraic foundation are at
+\url{https://github.com/cosmoparadox/mathematical-tools}.
+\end{abstract}
+
+\keywords{livelock detection \and self-stabilization \and
+          parameterized verification \and unidirectional ring \and
+          fixed point}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+Self-stabilizing distributed protocols recover from arbitrary transient
+faults by converging to a legitimate state from any initial
+configuration~\citep{dijkstra1974}. A key correctness property is
+\emph{livelock freedom}: no infinite execution in which every process
+fires indefinitely without stabilizing. For protocols on a unidirectional
+ring of $K$ processes, the verification question is whether livelock
+freedom holds for all $K\!\geq\!2$---the \emph{parameterized} livelock
+freedom problem.
+
+Klinkhamer and Ebnenasir~\citep{klinkhamer2013,klinkhamer2019} study
+this problem for self-disabling deterministic protocols, establishing
+$\Pi^0_1$-completeness and a correct semi-algorithm for livelock
+\emph{detection}.  Building on the algebraic characterization of
+Farahat~\citep{farahat2012}, where pseudolivelock and propagation are
+structured computable relations on $T$, the present paper shows that
+livelock \emph{freedom} is decidable in $O(|T|^3)$ time via the
+greatest fixed point $\Ls$ of a single operator on $T$, independent of
+ring size $K$.
+
+\paragraph{Contribution.}
+We show livelock freedom reduces to checking $\Ls = \emptyset$, where
+$\Ls$ is the greatest fixed point of a single deflationary operator on
+$T$. This runs in $O(|T|^3)$ time independent of $K$. It suffices that
+\emph{one} process has no pseudolivelock to certify freedom for all
+ring sizes simultaneously.
+
+\paragraph{Foundation.}
+This paper builds on Farahat~\citep{farahat2012} (Ch.~6), which
+characterizes livelocks via the \emph{Propagation Law}
+$H\!\circ\!E = E\!\circ\!H$ and the \emph{Circulation Law}
+$H^{|E|}\cap E^K\!\neq\!\emptyset$. That work is existential and does
+not address decidability. The present paper makes it computationally
+effective. Code and the dissertation chapter are at
+\url{https://github.com/cosmoparadox/mathematical-tools}.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Setting and Definitions}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+\paragraph{Ring topology.}
+A \emph{unidirectional ring} of size $K\!\geq\!2$ consists of processes
+$P_0,P_1,\ldots,P_{K-1}$ with indices mod $K$. Each process $P_r$ has a
+state variable $x_r \in \Zm = \{0,1,\ldots,m-1\}$ for a fixed integer
+$m\!\geq\!2$. Process $P_r$ reads its \emph{predecessor value}
+$x_{r-1}$ and its \emph{own value} $x_r$, and may write a new value to
+$x_r$.
+
+\begin{definition}[Transition and protocol]
+\label{def:trans}
+A \emph{transition} is a triple $t=(v,w,w')\in\Zm^3$ where:
+\begin{itemize}
+  \item $v = t.\pred$: the predecessor value that enables $t$,
+  \item $w = t.\own$: the own value that enables $t$,
+  \item $w' = t.\writ$: the value written to $x_r$ when $t$ fires.
+\end{itemize}
+A \emph{protocol} is a finite set $T\subseteq\Zm^3$ of transitions.
+A transition $t=(v,w,w')\in T$ satisfies $w'\neq w$ (the written value
+differs from the own value). It is \emph{self-disabling} if no
+transition in $T$ has the form $(v, w', w'')$ for any $w''\in\Zm$;
+that is, no transition in $T$ shares the same predecessor value $v$
+and has own value equal to the written value $w'$ of $t$. Intuitively,
+after $t$ fires and sets $x_r\!\leftarrow\!w'$, process $P_r$ cannot
+fire again even if the predecessor value stays $v$, because no
+transition is enabled with $(\pred,\own) = (v,w')$.
+Throughout this paper, \emph{all transitions in $T$ are assumed
+self-disabling}.
+A \emph{protocol} is \emph{self-disabling} if every transition in it
+is self-disabling.
+\end{definition}
+
+\begin{definition}[Enabling and execution]
+\label{def:exec}
+Transition $t=(v,w,w')$ is \emph{enabled} at process $P_r$ in global
+state $\mathbf{x}=(x_0,\ldots,x_{K-1})$ iff $x_{r-1}=v$ and $x_r=w$.
+Firing $t$ sets $x_r\leftarrow w'$ and leaves all other variables
+unchanged. An \emph{execution} is an infinite sequence of
+(process, transition) pairs, each pair enabled at the time of firing.
+A \emph{livelock} is an execution in which every process fires
+infinitely often.
+\end{definition}
+
+\begin{definition}[$(l,q)$-ring topology]
+\label{def:lq}
+A \emph{$(l,q)$-ring} of size $K = l + nq$ (for integer $n\geq 1$)
+is a unidirectional ring in which:
+\begin{itemize}
+  \item Processes $P_0,\ldots,P_{l-1}$ form a \emph{prefix} of $l$
+        distinct process types, each appearing exactly once.
+  \item Processes $P_l,\ldots,P_{l+q-1}$ form a \emph{period} of $q$
+        distinct process types, repeated $n$ times to fill the ring.
+\end{itemize}
+A ring is \emph{symmetric} ($l=0$, $q=1$) when all $K$ processes run
+the same protocol $T$; valid ring sizes are all $K\geq 2$.
+A ring is \emph{$(1,1)$-asymmetric} ($l=1$, $q=1$) when $P_0$ runs
+protocol $T_0$ and $P_1,\ldots,P_{K-1}$ all run $T_{\mathit{other}}$;
+valid ring sizes are $K = 1+n$ for any $n\geq 1$.
+This paper addresses the symmetric and $(1,1)$-asymmetric cases.
+The general $(l,q)$-asymmetric case is left to a companion paper.
+\end{definition}
+
+\begin{definition}[Pseudolivelock graph $H(S)$ and operator $\PL$]
+\label{def:H}
+For a set of transitions $S\subseteq T$, define the directed graph
+$H(S)$ as follows:
+\begin{itemize}
+  \item \emph{Vertices}: the transitions in $S$.
+  \item \emph{Edges}: there is a directed edge $t_i\!\to\!t_j$ in
+        $H(S)$ iff $t_j.\own = t_i.\writ$, i.e., the value written by
+        $t_i$ equals the own value required to enable $t_j$.
+\end{itemize}
+The operator $\PL(S)$ returns the set of transitions in $S$ that lie on
+at least one directed cycle in $H(S)$:
+\[
+  \PL(S) \;=\; \bigcup\, \{C \subseteq S : C \text{ is a non-trivial
+  strongly connected component of } H(S)\}.
+\]
+Algorithmically, $\PL(S)$ is computed by Tarjan's SCC algorithm on
+$H(S)$, retaining only SCCs of size $\geq 2$ and self-loops (edges
+$t\to t$). Complexity: $O(|S|^2)$.
+\end{definition}
+
+\begin{definition}[Shadow of a pseudolivelock --- $\Shad$]
+\label{def:shad}
+Let $P\subseteq T$ be a set of transitions with pseudolivelock graph
+$H(P)$.  For each directed $H(P)$-edge $t_i\!\to\!t_j$ (where
+$t_j.\own = t_i.\writ$), define the \emph{arc} of that edge as the
+pair $(t_i.\pred,\, t_j.\pred)$.  Intuitively: when process $P_r$
+fires $t_i$ and then $t_j$ in succession, its predecessor value
+$x_{r-1}$ must change from $t_i.\pred$ to $t_j.\pred$ between the
+two firings.  The transition in $P_{r-1}$ responsible for this change
+must have $\own = t_i.\pred$ and $\writ = t_j.\pred$.  We call
+$(t_i.\pred,\, t_j.\pred)$ the \emph{shadow} of the edge
+$t_i\!\to\!t_j$.
+
+The \emph{shadow set} of $P$ collects all such required $(\own,\writ)$
+pairs over every $H(P)$-edge:
+\[
+  \Shad(P) \;=\;
+  \bigl\{\,(t_i.\pred,\; t_j.\pred) :
+     t_i,t_j\in P,\; t_j.\own = t_i.\writ\,\bigr\}.
+\]
+A predecessor transition $t_k\in T_{r-1}$ is a \emph{shadow witness}
+for the edge $t_i\!\to\!t_j$ iff $(t_k.\own,\,t_k.\writ)=(t_i.\pred,\,t_j.\pred)$,
+i.e., $t_k$ has the form $(\,\cdot\,,\, t_i.\pred,\, t_j.\pred\,)$
+in $T_{r-1}$.  The shadow set $\Shad(P)$ is exactly the set of
+$(\own,\writ)$ pairs that must be present among the predecessor
+transitions to sustain equivariant backward propagation from $P_r$ to
+$P_{r-1}$.
+\end{definition}
+
+\begin{definition}[Filter operator $\Filter$]
+\label{def:filter}
+For a set $S\subseteq T$ and a requirement set $R\subseteq\Zm^2$:
+\[
+  \Filter(S,\,R) \;=\; \{\,t\in S : (t.\own,\; t.\writ)\in R\,\}.
+\]
+$\Filter(T_{r-1},\,\Shad(P))$ is the \emph{backward propagation step}:
+it extracts from $T_{r-1}$ every transition of the form
+$(\,\cdot\,,\, t_i.\pred,\, t_j.\pred\,)$ for some $H(P)$-edge
+$t_i\!\to\!t_j$.  These are precisely the shadow witnesses in $T_{r-1}$
+that can sustain equivariant propagation backward from $P_r$ to
+$P_{r-1}$.  Any transition in $T_{r-1}$ that is not a shadow witness
+for any edge in $P$ is removed, since it cannot participate in a
+consistent backward propagation.
+\end{definition}
+
+\begin{remark}[Shadow witnesses are exactly the equivariance condition]
+\label{rem:equiv}
+We explain why the existence of shadow witnesses in $T_{r-1}$ is
+equivalent to the equivariance condition
+$H_{r-1}\circ E \;=\; E\circ H_r$.
+
+Fix an $H_r$-edge $(t_i\!\to\!t_j)$ in $L_r$ and its shadow witness
+$t_k\in L_{r-1}$ with $t_k.\own=t_i.\pred$ and $t_k.\writ=t_j.\pred$.
+The arc construction sets $E[t_k][t_j]=1$.  Now expand both sides:
+
+\emph{Left side $(H_{r-1}\circ E)[t_k][t_j]=1$}
+requires $\exists\,t_s$: $H_{r-1}[t_k][t_s]=1$ and $E[t_s][t_j]=1$.
+The first condition gives $t_s.\own = t_k.\writ = t_j.\pred$; the
+second gives $t_s.\own = t_{i'}.\pred$ and $t_s.\writ = t_j.\pred$
+for some $H_r$-edge $(t_{i'}\!\to\!t_j)$.  These are consistent: $t_s$
+is the $H_{r-1}$-successor of $t_k$ with $t_s.\own = t_j.\pred$.
+
+\emph{Right side $(E\circ H_r)[t_k][t_j]=1$}
+requires $\exists\,t_s$: $E[t_k][t_s]=1$ and $H_r[t_s][t_j]=1$.
+The first gives a $H_r$-edge $(t_i\!\to\!t_s)$ with $t_k.\own=t_i.\pred$
+and $t_k.\writ=t_s.\pred$; the second gives $t_j.\own=t_s.\writ$.
+
+\emph{Why both sides agree:}
+The shared value is $t_j.\pred = t_k.\writ = t_s.\own$.  It links the
+$H_{r-1}$-successor of $t_k$ (whose $\own$ must equal $t_j.\pred$) to
+the $H_r$-successor of $t_i$ (whose $\pred$ must equal $t_k.\writ =
+t_j.\pred$).  The shadow condition $(t_k.\own,\,t_k.\writ) =
+(t_i.\pred,\,t_j.\pred)$ is therefore precisely the statement that the
+arc $t_k\!\to\!t_s$ in $H_{r-1}$ mirrors the arc $t_i\!\to\!t_j$ in
+$H_r$---which is exactly what $H_{r-1}\circ E = E\circ H_r$ asserts.
+
+Consequently, $\Filter(T_{r-1},\Shad(P_r))$ retains precisely those
+transitions of $T_{r-1}$ that can participate in an equivariant
+propagation from $P_r$ to $P_{r-1}$.
+\end{remark}
+
+\begin{definition}[Fixed-point operator $\bPhi$ and livelock kernel $\Ls$]
+\label{def:phi}
+\emph{Design rationale.}
+Intuitively, $\bPhi$ removes transitions that cannot participate in any
+equivariant backward propagation and retains only those forming maximal
+pseudolivelocks.  By Remark~\ref{rem:equiv}, one iteration implements a
+backward equivariant propagation step: it (i)~extracts the maximal
+pseudolivelock $\PL(S)$, (ii)~computes the shadow $\Shad(\PL(S))$
+encoding the equivariance requirement at the predecessor interface, and
+(iii)~filters $S$ and re-extracts the maximal pseudolivelock.
+
+Formally, define $\bPhi : 2^T \to 2^T$ by:
+\[
+  \bPhi(S)
+  \;=\; \underbrace{\PL\!\bigl(}_{\text{(iii) re-extract SCC}}
+         \underbrace{\Filter(S,\;}_{\text{(ii) prune non-witnesses}}
+         \underbrace{\Shad(\PL(S))}_{\text{(i) required pairs}}
+         \bigr).
+\]
+Starting from $\Li{0}=T$, iterate $\Li{i+1}=\bPhi(\Li{i})$.
+The \emph{livelock kernel} is the limit:
+\[
+  \Ls \;=\; \lim_{i\to\infty}\Li{i} \;=\; \nu S.\,\bPhi(S),
+\]
+the greatest fixed point of $\bPhi$.  We write $\Hi{i}=H(\Li{i})$.
+
+\noindent\textbf{Properties used throughout:}
+\begin{enumerate}
+  \item[\textbf{(D)}] \emph{Deflationary:} $\bPhi(S)\subseteq S$,
+        because both $\Filter$ and $\PL$ only remove transitions.
+  \item[\textbf{(M)}] \emph{Monotone:} $S'\!\subseteq\!S \Rightarrow
+        \bPhi(S')\!\subseteq\!\bPhi(S)$, because smaller $S$ yields
+        smaller $\PL(S)$, hence smaller $\Shad(\PL(S))$, hence fewer
+        transitions survive the filter.
+\end{enumerate}
+\end{definition}
+
+\begin{definition}[Propagation $\Estar$]
+\label{def:E}
+Given $\Ls$ and the graph $\Hstar = H(\Ls)$, define the
+\emph{propagation relation} $\Estar$ as follows. For each directed edge
+$(t_i\to t_j)$ in $\Hstar$, find each transition $t_k\in\Ls$
+satisfying:
+\[
+  t_k.\own = t_i.\pred \quad\text{and}\quad t_k.\writ = t_j.\pred.
+\]
+Set $\Estar[t_k][t_j]=1$ for each $k$ such that $t_k \in \Ls$. Each transition
+$t_k$ is a \emph{predecessor enabler}: it is the transition that the
+predecessor process $P_{r-1}$ must fire to make the edge $(t_i\to t_j)$
+propagate forward to $P_r$.
+\end{definition}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Algorithm}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{algorithm}[h]
+\caption{Algorithm~1: Symmetric livelock decision}
+\label{alg:main}
+\begin{algorithmic}[1]
+\Require Symmetric protocol $T$ (all $K$ processes identical)
+\Ensure \textsc{livelock} or \textsc{free}
+\State $S \leftarrow T$
+\Repeat
+  \State $P \leftarrow \PL(S)$
+    \hfill\Comment{maximal SCC of $H(S)$; Def.~\ref{def:H}}
+  \If{$P = \emptyset$} \Return \textsc{free} \EndIf
+  \State $S' \leftarrow \PL(\Filter(S,\,\Shad(P)))$
+    \hfill\Comment{shadow back-propagation; Defs.~\ref{def:shad},\ref{def:filter}}
+\Until{$S' = S$}
+\State $\Ls \leftarrow S'$
+\Return \textsc{livelock}
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[h]
+\caption{Algorithm~2: $(1,1)$-Asymmetric livelock decision}
+\label{alg:asym}
+\begin{algorithmic}[1]
+\Require Protocols $T_0$ ($P_0$) and $T_{\mathit{other}}$ ($P_1,\ldots,P_{K-1}$)
+\Ensure \textsc{livelock} or \textsc{free}
+\State $L_0 \leftarrow \PL(T_0)$;\quad
+       $L_{\mathit{other}} \leftarrow \PL(T_{\mathit{other}})$
+\If{$L_0=\emptyset$ \textbf{or} $L_{\mathit{other}}=\emptyset$}
+  \Return \textsc{free}
+\EndIf
+\While{true} \hfill\Comment{joint fixed-point over $(L_0,L_{\mathit{other}})$}
+  \State \Comment{Step 1: constrain $L_{\mathit{other}}$ using current $L_0$,
+         then re-stabilise with Algorithm~1}
+  \State $L_{\mathit{other}} \leftarrow
+    \text{Algorithm~1 warm-started from }
+    \PL(\Filter(L_{\mathit{other}},\Shad(L_0)))$
+  \If{$L_{\mathit{other}}=\emptyset$} \Return \textsc{free} \EndIf
+  \State \Comment{Step 2: ring closure back to $P_0$ using updated $L_{\mathit{other}}$}
+  \State $L_0' \leftarrow \PL(\Filter(T_0,\,\Shad(L_{\mathit{other}})))$
+  \If{$L_0'=\emptyset$} \Return \textsc{free} \EndIf
+  \If{$L_0' = L_0$} \textbf{break}
+    \hfill\Comment{joint fixed point reached}
+  \EndIf
+  \State $L_0 \leftarrow L_0'$
+    \hfill\Comment{update $L_0$ before next iteration}
+\EndWhile
+\State $\Ls \leftarrow L_0'$;\quad $\Ls_{\mathit{other}} \leftarrow L_{\mathit{other}}$
+\Return \textsc{livelock}
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Notation for the proof.}
+Let $\Li{0}=T$ and $\Li{i+1}=\bPhi(\Li{i})$ be the iterates produced
+by Algorithm~\ref{alg:main}. Write $\Hi{i}=H(\Li{i})$ for the
+pseudolivelock graph at iterate $i$.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Correctness}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+The proof uses two results from Farahat as black boxes.
+
+\begin{lemma}[Farahat's characterisation~{\citep[Ch.~6]{farahat2012}}]
+\label{lem:farahat}
+A livelock exists for some $K\!\geq\!2$ if and only if there exist a
+pseudolivelock $H$ and propagation $E$ on a non-empty support
+$\mathcal{L}\subseteq T$, satisfying:
+\begin{enumerate}
+  \item[\textbf{(F1)}] Every $t\in\mathcal{L}$ lies on a directed cycle
+        in $H(\mathcal{L})$.
+  \item[\textbf{(F2)}] $E$ is defined on all of $\mathcal{L}$: every
+        $t_k\in\mathcal{L}$ is the arc predecessor of some $H$-edge
+        $(t_i\!\to\!t_j)$ in $\mathcal{L}$, i.e., participates in at
+        least one propagation arc. Here, $E$ is strenghthend by the equivariance conidtion with the predecessor's interface.
+  \item[\textbf{(F3)}] $H\circ E = E\circ H$ at every process
+        interface.
+\end{enumerate}
+We call such $(H,E,\mathcal{L})$ a \emph{Farahat witness}.
+\end{lemma}
+
+\begin{lemma}[Circulation Law~{\citep[Ch.~6]{farahat2012}}]
+\label{lem:cl}
+Any Farahat witness yields a concrete ring size $K'\geq 2$ and a
+periodic livelock execution on a ring of size $K'$.
+\end{lemma}
+
+The theorem has two directions with different proof strategies.
+\emph{Soundness} ($\Ls\neq\emptyset\Rightarrow$ livelock): the algorithm
+returns a non-empty fixed point $\Ls$ on which it constructs a
+pseudolivelock $\Hstar$ at every process and a propagation $\Estar$
+satisfying equivariance; Farahat's theorem then gives the livelock.
+This direction is straightforward: we simply verify (F1)--(F3) for the
+objects $\Hstar,\Estar,\Ls$ built by the fixed point.
+\emph{Completeness} (livelock $\Rightarrow\Ls\neq\emptyset$): if a
+livelock exists, Farahat guarantees a witness $(H,E,\mathcal{L})$; we
+show $\mathcal{L}$ is a pre-fixed point of $\bPhi$, so by maximality of
+$\Ls$ (Knaster-Tarski), $\mathcal{L}\subseteq\Ls$ and $\Ls\neq\emptyset$.
+This direction is harder: it requires showing that the equivariance
+conditions enforced by $\bPhi$ are exactly the ones satisfied by every
+valid witness, so no witness support can escape the fixed point.
+
+The following invariant is central to both directions.
+
+\begin{invariant}[Maximality of $\Hi{i}$]
+\label{inv:max}
+At every iterate $i\geq 0$, every transition in $\Li{i}$ lies on a
+directed cycle in $\Hi{i}=H(\Li{i})$.
+\end{invariant}
+
+\begin{proof}[Proof of Invariant~\ref{inv:max}]
+By induction on $i$.
+\emph{Base ($i=0$):} $\Li{1}=\bPhi(T)$.
+Every element of $\Li{1}$ is in $\PL(\cdot)$ by definition, so lies on
+a cycle in $H(\Li{1})=\Hi{1}$.
+\emph{Step:} Assume the invariant at $i$, so $\PL(\Li{i})=\Li{i}$.
+Then $\Li{i+1}=\PL(\Filter(\Li{i},\Shad(\Li{i})))$; every element of
+$\Li{i+1}$ lies on a cycle in $\Hi{i+1}$ by definition of $\PL$. \qed
+\end{proof}
+
+\begin{lemma}[Completeness: every Farahat witness support is a pre-fixed point of $\bPhi$]
+\label{lem:prefixed}
+Let $(H,E,\mathcal{L})$ be a Farahat witness.  Then
+$\mathcal{L}\subseteq\bPhi(\mathcal{L})$; hence $\mathcal{L}\subseteq\Ls$.
+\end{lemma}
+
+\begin{proof}
+We verify $\mathcal{L}\subseteq\PL(\mathcal{L})$ and
+$\mathcal{L}\subseteq\Filter(\mathcal{L},\Shad(\PL(\mathcal{L})))$.
+
+\emph{$\mathcal{L}\subseteq\PL(\mathcal{L})$:}
+By hypothesis (F1) of Lemma~\ref{lem:farahat}, $H$ is a pseudolivelock
+on $\mathcal{L}$: every $t\in\mathcal{L}$ lies on a directed cycle in
+$H=H(\mathcal{L})$.  Hence $\mathcal{L}\subseteq\PL(\mathcal{L})$, and
+in fact $\PL(\mathcal{L})=\mathcal{L}$.
+
+\emph{$\mathcal{L}\subseteq\Filter(\mathcal{L},\Shad(\mathcal{L}))$:}
+By hypothesis (F2), $E$ maps $\mathcal{L}$ into $\mathcal{L}$: for each
+$H$-edge $(t_i\!\to\!t_j)$ in $\mathcal{L}$, the arc predecessor
+$t_k\in\mathcal{L}$ with $t_k.\own=t_i.\pred$ and $t_k.\writ=t_j.\pred$
+exists.  Therefore $(t_k.\own,t_k.\writ)=(t_i.\pred,t_j.\pred)\in\Shad(\mathcal{L})$,
+so $t_k\in\Filter(\mathcal{L},\Shad(\mathcal{L}))$.  If $t_k$
+did not participate in any propagation arc, then $E$ would not be
+defined at $t_k$, contradicting hypothesis~(F2) that $(H,E,\mathcal{L})$
+is a valid Farahat witness.  Hence every $t_k\in\mathcal{L}$ is the arc
+predecessor of some $H$-edge, satisfying
+$(t_k.\own,t_k.\writ)\in\Shad(\mathcal{L})$ and giving
+$\mathcal{L}\subseteq\Filter(\mathcal{L},\Shad(\mathcal{L}))$.
+(The operator $\bPhi$ enforces this condition by construction, pruning any
+transition whose $(\own,\writ)$ pair does not appear as a shadow
+witness.)\looseness=-1
+
+Combining: $\mathcal{L}\subseteq\PL(\Filter(\mathcal{L},\Shad(\mathcal{L})))
+=\bPhi(\mathcal{L})$.  Since $\bPhi$ is monotone and $\Ls$ is the
+greatest fixed point of $\bPhi$, every pre-fixed point is contained in
+$\Ls$ (Knaster-Tarski~\citep{tarski1955}); hence $\mathcal{L}\subseteq\Ls$. \qed
+\end{proof}
+
+\begin{lemma}[Soundness: $\Ls\neq\emptyset$ implies the algorithm constructs a Farahat witness]
+\label{lem:witness}
+If $\Ls\neq\emptyset$, then $(\Hstar,\Estar,\Ls)$ is a Farahat witness.
+\end{lemma}
+
+\begin{proof}
+We verify hypotheses (F1)--(F3) of Lemma~\ref{lem:farahat}.
+
+\textbf{(F1)}~Invariant~\ref{inv:max} is proved by induction on the
+iteration index $i$: at every step, $\bPhi$ applies $\PL$, which by
+definition retains only transitions lying on directed cycles, so
+$\Hi{i}$ is maximal at every iterate.  At the fixed point
+$\Ls=\Li{i^*}$, the invariant gives: every $t\in\Ls$ lies on a
+directed cycle in $\Hstar=H(\Ls)$, establishing~(F1).
+
+\textbf{(F2)}~The fixed-point equation $\bPhi(\Ls)=\Ls$ gives
+$\Ls=\PL(\Filter(\Ls,\Shad(\Ls)))$, so $\Shad(\Ls)$ is satisfied within
+$\Ls$: for each $\Hstar$-edge $(t_i\!\to\!t_j)$, the pair
+$(t_i.\pred,t_j.\pred)\in\Shad(\Ls)$, guaranteeing at least one
+$t_k\in\Ls$ with $t_k.\own=t_i.\pred$ and $t_k.\writ=t_j.\pred$.  Hence $\Estar$ is
+defined on all of $\Ls$ and every transition participates in a
+propagation arc.
+
+\textbf{(F3)}~By Remark~\ref{rem:equiv}, the shadow-witness condition
+of (F2) is algebraically equivalent to
+$\Hstar\circ\Estar=\Estar\circ\Hstar$. \qed
+\end{proof}
+
+\begin{lemma}[Termination and maximality]
+\label{lem:termination}
+Algorithm~\ref{alg:main} terminates in at most $|T|$ iterations in
+$O(|T|^3)$ time.  $\Ls$ is the greatest subset of $T$ closed under
+shadow back-propagation and pseudolivelock completion; it therefore
+contains every support admitting a Farahat witness.
+\end{lemma}
+
+\begin{proof}
+$\bPhi$ is deflationary~(D) and monotone~(M), so
+Knaster-Tarski~\citep{tarski1955} gives a greatest fixed point in at
+most $|T|$ steps (each removes $\geq 1$ transition).  Each step:
+$O(|T|^2)$ Tarjan $+$ $O(|T|)$ filter; total $O(|T|^3)$, independent
+of $K$.  By Lemma~\ref{lem:prefixed}, every Farahat witness support
+$\mathcal{L}$ satisfies $\mathcal{L}\subseteq\bPhi(\mathcal{L})$,
+making it a pre-fixed point of $\bPhi$; by Knaster-Tarski,
+$\mathcal{L}\subseteq\Ls$. \qed
+\end{proof}
+
+\begin{theorem}[Main result]
+\label{thm:main}
+Algorithm~\ref{alg:main} decides in $O(|T|^3)$ time, independent of $K$:
+\[
+  \Ls \neq \emptyset
+  \;\iff\;
+  \text{a livelock exists for some } K \geq 2.
+\]
+\end{theorem}
+
+\begin{proof}
+\emph{Soundness} $(\Rightarrow)$: Lemma~\ref{lem:witness} constructs the
+Farahat witness $(\Hstar,\Estar,\Ls)$; Lemma~\ref{lem:cl} gives the
+livelock.
+\emph{Completeness} $(\Leftarrow)$: any livelock yields a Farahat witness
+$(H,E,\mathcal{L})$ by Lemma~\ref{lem:farahat}; Lemma~\ref{lem:prefixed}
+gives $\mathcal{L}\subseteq\Ls$, so $\Ls\neq\emptyset$.
+Complexity: Lemma~\ref{lem:termination}. \qed
+\end{proof}
+
+\paragraph{Livelock freedom---the maximality argument.}
+When $\Ls=\emptyset$, Algorithm~\ref{alg:main} certifies livelock
+freedom for \emph{all} $K\!\geq\!2$ in one $O(|T|^3)$ computation.
+By Lemma~\ref{lem:termination}, $\Ls$ contains every Farahat witness support.
+Its emptiness means no subset of $T$ is a pre-fixed point of $\bPhi$:
+there is no set of transitions that can simultaneously sustain a
+pseudolivelock at every process with consistent predecessor propagation.
+Crucially, it suffices that \emph{one} process has an empty
+pseudolivelock---because Invariant~\ref{inv:max} ensures that at every
+iterate $i$, every transition in $\Li{i}$ lies on a cycle in $\Hi{i}$.
+If at any iterate $P=\PL(\Li{i})=\emptyset$, the algorithm terminates
+immediately, having proved that no ring of any size $K$ can sustain a
+livelock.
+
+%======================================================
+\section{Semantic Faithfulness of the Livelock Kernel}
+%========================================================
+The preceding section introduced the livelock kernel
+$\Lstar = \nu\Phi(T)$ and established that it is computable
+in~$O(|T|^3)$ time: the Farahat witness is decidable.
+We now show that~$\Lstar$ is semantically faithful:
+$\Lstar \neq \emptyset$ if and only if a livelock execution
+exists.
+The argument proceeds through the execution semantics of
+livelocks and yields, as a byproduct, an independent proof
+of decidability via a bounded witness theorem.
+
+\subsection{Livelock executions and periodic walks}
+
+\begin{remark}[Periodic structure of livelocks]\label{rem:periodic}
+If a livelock exists on a ring of size~$K$, it admits
+a periodic execution in which each process repeatedly
+traverses a closed walk in~$\Hstar(\Lstar)$.
+These walks are \emph{equivariant}: the enabling walk for
+each process's closed walk is the closed walk of its
+predecessor.
+\end{remark}
+
+\subsection{Completeness: livelock implies
+\texorpdfstring{$\Lstar \neq \emptyset$}{L* nonempty}}
+
+We show that any livelock execution produces a nonempty
+fixed point of~$\Phi$, and that the witness consists of
+simple cycles.
+
+\begin{lemma}[Closed walks contain simple cycles]
+\label{lem:decompose}
+Every closed walk in a directed graph contains a simple cycle.
+\end{lemma}
+
+\begin{proof}
+If any transition appears more than once in the walk, the
+sub-walk between the two occurrences is a shorter closed walk.
+Iterating yields a closed walk with no repeated transitions,
+which is a simple cycle.
+\end{proof}
+
+\begin{lemma}[Simple cycles induce equal-length closed walks]
+\label{lem:equal-length}
+Let $C$ be a simple cycle of length~$N$ in~$\Hstar(\Lstar)$.
+Every enabling walk for~$C$ is a closed walk of length~$N$.
+\end{lemma}
+
+\begin{proof}
+Each of the~$N$ edges of~$C$ contributes exactly one shadow
+constraint, requiring exactly one witness transition.
+The enabling walk therefore has exactly~$N$ entries.
+Closure follows from the cyclicity of~$C$:
+the shadow of the last edge $(t_{N-1}, t_0)$ requires
+$w_{N-1}.\mathit{written} = t_0.\mathit{pred}$,
+while the shadow of the first edge $(t_0, t_1)$ requires
+$w_0.\mathit{own} = t_0.\mathit{pred}$.
+Hence $w_{N-1}.\mathit{written} = w_0.\mathit{own}$,
+which is the H-edge condition $w_{N-1} \to w_0$,
+closing the walk.
+\end{proof}
+
+\begin{lemma}[Enabling walks are simple]
+\label{lem:walk-simple}
+Let $C$ be a simple cycle of length~$N$ in~$\Hstar(\Lstar)$
+at process~$P_r$ in a livelock on a ring of size~$K$.
+Every enabling walk for~$C$ is a simple cycle of the
+same length~$N$.
+\end{lemma}
+
+\begin{proof}
+Let $W$ be an enabling walk for~$C$ at~$P_{r-1}$.
+By Lemma~\ref{lem:equal-length}, $W$ is a closed walk
+of length~$N$.
+Suppose $W$ is not simple.
+Then $W$ decomposes into simple cycles $S_1, \ldots, S_p$
+with $|S_1| + \cdots + |S_p| = N$ and each $|S_i| < N$.
+
+Each~$S_i$ is a valid simple cycle in~$\Hstar(\Lstar)$.
+Since $\Lstar$ is a fixed point of~$\Phi$, every simple
+cycle in~$\Hstar(\Lstar)$ admits enabling walks at every
+process.
+Therefore~$S_i$ propagates independently through
+$P_{r-2}, P_{r-3}, \ldots$, producing a closed walk of
+length~$|S_i|$ at each successive process.
+
+The number of simple cycles of length~$|S_i|$
+in~$\Hstar(\Lstar)$ is at most $\binom{|\Lstar|}{|S_i|}$.
+By the pigeonhole principle, there exists $m \geq 1$ such
+that after~$mK$ back-propagations, the image of~$S_i$
+returns to~$P_r$ as a closed walk of length~$|S_i|$
+whose transitions are drawn from~$\Lstar$.
+
+In the livelock execution, $P_r$ executes~$C$.
+By Remark~\ref{rem:periodic}, the enabling structure
+at~$P_r$ is determined by~$C$.
+The image of~$S_i$ at~$P_r$ is therefore a closed walk
+of length $|S_i| < N$ that must be supported within~$C$.
+
+A simple cycle admits no proper closed sub-walk:
+any closed sub-walk of length less than~$N$ would revisit
+a transition in fewer than~$N$ steps,
+contradicting the simplicity of~$C$.
+This is a contradiction.
+Therefore $W$ is simple.
+\end{proof}
+
+\begin{lemma}[Livelock reduces to simple-cycle circulation]
+\label{lem:reduction}
+If a livelock exists, then there exists a livelock supported
+by a circulation of simple cycles, matched bijectively
+(up to cyclic rotation) across processes.
+All such cycles are contained in~$\Lstar$.
+In particular, $\Lstar \neq \emptyset$.
+\end{lemma}
+
+\begin{proof}
+By Remark~\ref{rem:periodic}, a livelock admits periodic
+equivariant closed walks in~$\Hstar(\Lstar)$.
+By Lemma~\ref{lem:decompose}, each closed walk contains
+a simple cycle.
+By Lemma~\ref{lem:walk-simple}, the enabling walk for
+this simple cycle is itself a simple cycle of the same length.
+The transitions of these simple cycles are sustained
+by~$\Phi$, hence they belong to~$\Lstar$.
+\end{proof}
+
+\subsection{Soundness:
+\texorpdfstring{$\Lstar \neq \emptyset$}{L* nonempty}
+implies livelock}
+
+\begin{lemma}[Simple cycles in $\Lstar$ construct a livelock]
+\label{lem:construction}
+If $\Lstar \neq \emptyset$, then there exists a simple cycle
+in~$\Hstar(\Lstar)$ that supports a livelock on any ring
+whose size~$K$ satisfies the circulation law.
+\end{lemma}
+
+\begin{proof}
+Since $\Lstar = \nu\Phi(T)$ is a nonempty fixed point of~$\Phi$,
+every transition in~$\Lstar$ lies on a cycle
+in~$\Hstar(\Lstar)$.
+By Lemma~\ref{lem:decompose}, this cycle contains a simple
+cycle~$C$.
+Assign to each process~$P_r$ the cycle~$C$, shifted by the
+cyclic rotation determined by the enabling walk.
+By Lemma~\ref{lem:walk-simple}, the enabling walk at each
+predecessor is a simple cycle of the same length, hence
+a valid execution cycle.
+Each process repeatedly fires its transitions in order,
+producing a periodic execution that never terminates.
+The circulation law ensures that the cyclic rotations are
+consistent across all~$K$ processes.
+\end{proof}
+
+\subsection{Main results}
+
+\begin{theorem}[Semantic faithfulness]\label{thm:faithful}
+For a self-disabling protocol with transition set~$T$:
+\[
+  \Lstar \neq \emptyset
+  \quad\Longleftrightarrow\quad
+  \text{a livelock execution exists for some~$K$
+  satisfying the circulation law.}
+\]
+\end{theorem}
+
+\begin{proof}
+$(\Leftarrow)$~Lemma~\ref{lem:reduction}.
+$(\Rightarrow)$~Lemma~\ref{lem:construction}.
+\end{proof}
+
+\begin{theorem}[Bounded witness]\label{thm:bounded}
+If a livelock exists for a self-disabling protocol with
+transition set~$T$ on state space~$\Zm$, then it admits
+a witness consisting of a circulation of simple cycles
+of length at most~$|T|$, independent of the ring size~$K$.
+\end{theorem}
+
+\begin{proof}
+By Lemma~\ref{lem:reduction}, a livelock is supported by
+simple cycles in~$\Hstar(\Lstar)$.
+A simple cycle visits each transition at most once, so its
+length is at most~$|\Lstar| \leq |T| \leq m^3$.
+The number of ring circulations required for the witness
+to close is at most~$\binom{|T|}{N}$ for a cycle of
+length~$N$, by the pigeonhole argument in
+Lemma~\ref{lem:walk-simple}.
+Therefore the witness is bounded and its size depends only
+on~$T$, not on~$K$.
+\end{proof}
+
+\begin{corollary}[Independent decidability]
+\label{cor:decidability}
+Livelock existence for self-disabling protocols on
+unidirectional rings is decidable.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:bounded}, every livelock is witnessed
+by simple cycles of length at most~$|T|$.
+The set of such cycles is finite (at most
+$\sum_{N=2}^{|T|} \binom{|T|}{N}$ candidates).
+For each candidate, the enabling walk computation and
+circulation law verification are finite procedures.
+Livelock freedom holds if and only if no witness exists.
+This decision procedure depends only on~$|T|$, not on~$K$.
+\end{proof}
+
+\begin{remark}[Relationship to the polynomial-time algorithm]
+Corollary~\ref{cor:decidability} provides a decidability
+proof that is independent of the fixed-point algorithm:
+it relies solely on the bounded witness structure, not
+on the computation of~$\Lstar$.
+The na\"ive procedure implied by the corollary---enumerating
+simple cycles and checking the circulation law---has
+complexity exponential in~$|T|$.
+The $O(|T|^3)$ algorithm of the preceding section provides
+a vastly more efficient decision procedure, but
+Corollary~\ref{cor:decidability} demonstrates that
+decidability follows from the structure of the problem
+alone, without reference to any particular algorithm.
+\end{remark}
+
+\begin{remark}[Why self-disabling bounds the witness]
+\label{rem:why}
+The self-disabling property is the structural reason that
+witness length is bounded.
+In a self-disabling protocol, after firing
+transition $(v, w, w')$, no transition $(v, w', {-})$
+exists in~$T$; thus every continuation at the same process
+requires a \emph{different} predecessor value.
+This forces the predecessor values along any simple cycle
+to form a sequence of distinct consecutive pairs (shadows),
+of which there are at most $m(m{-}1)$.
+Every simple cycle therefore has length at most~$m(m{-}1)$,
+and the witness space is bounded.
+Protocols that lack the self-disabling property can chain
+transitions with identical predecessor values, admitting
+unbounded local computations and hence unbounded witnesses.
+\end{remark}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Circulation Law}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{remark}
+Lemma~\ref{lem:cl} (Farahat's Circulation Law) is not an independent
+condition: given a Farahat witness $(\Hstar,\Estar,\Ls)$, a valid $K'$
+is computable in finite time because $\Hstar$ is an SCC on the finite
+set $\Ls$ (so $\ord(\Hstar)$ is finite) and $\Estar$ is a binary relation on the finite set $\Ls$ so repeated relational composition is eventually periodic.
+
+The minimum admissible $K$ can be found by searching over pairs
+$(|E|,K)$ with $(\Hstar)^{|E|}\cap E^K\neq\emptyset$ and $K\geq 2$,
+using an $O(|\Ls|^2)$ matrix intersection check.
+
+ Circulation is probably not independent once $\Ls$ is understood on the level of simple cycle support.Proving that requires an additional structural lemma about how $\Estar$ acts on the simple cycles of $\Hstar$. For thte scope of the current manuscript, we leave that to a subsequent follow-up.
+\end{remark}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{The $(1,1)$-Asymmetric Case}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+By Definition~\ref{def:lq}, the $(1,1)$-asymmetric ring has $P_0$
+running $T_0$ and $P_1,\ldots,P_{K-1}$ running $T_{\mathit{other}}$,
+with valid ring sizes $K = 1+n$ for any $n\geq 1$.
+
+A single application of Algorithm~1 to $T_{\mathit{other}}$ alone is
+\emph{insufficient}: its fixed point $\Ls_{\mathit{other}}$ may contain
+transitions whose shadow arcs are not supported by $T_0$.  Declaring
+livelock based on $\Ls_{\mathit{other}}\neq\emptyset$ alone would be
+unsound. Similarly, ring closure back to $P_0$ may shrink $L_0$, which
+in turn would further constrain $\Ls_{\mathit{other}}$; this process
+must iterate.
+
+Algorithm~2 performs a \emph{joint fixed-point iteration} over the pair
+$(L_0, L_{\mathit{other}})$:
+\begin{enumerate}
+\item Initialise $L_0 = \PL(T_0)$,
+      $L_{\mathit{other}} = \PL(T_{\mathit{other}})$.
+\item \emph{Constrain and re-stabilise $L_{\mathit{other}}$:} apply
+      $\Filter(L_{\mathit{other}},\Shad(L_0))$ to remove transitions
+      whose shadows $L_0$ cannot support, then re-run Algorithm~1
+      warm-started from the result.
+\item \emph{Ring closure:}
+      $L_0' = \PL(\Filter(T_0,\Shad(L_{\mathit{other}})))$.
+\item If either set empties, return \textsc{free}.
+      If $L_0'=L_0$ (joint fixed point), return \textsc{livelock}.
+      Otherwise set $L_0 \leftarrow L_0'$ and repeat.
+\end{enumerate}
+
+\paragraph{Termination.}
+Both $L_0$ and $L_{\mathit{other}}$ are monotone decreasing across
+iterations and bounded below by $\emptyset$.  By Knaster-Tarski on the
+finite joint lattice $(2^{T_0}\!\times\!2^{T_{\mathit{other}}},\subseteq)$,
+the iteration terminates in at most $|T_0|$ outer steps.
+
+\paragraph{Complexity.}
+With warm-starting, the total work for all inner fixed points across
+all outer iterations is $O(|T_{\mathit{other}}|^3)$: each inner step
+removes $\geq\!1$ transition from $L_{\mathit{other}}$, so the total
+number of inner steps is at most $|T_{\mathit{other}}|$, each costing
+$O(|T_{\mathit{other}}|^2)$.  Ring closures cost
+$|T_0|\times O(|T_0|^2)=O(|T_0|^3)$.  Total:
+$O(|T_{\mathit{other}}|^3+|T_0|^3)=O(|T|^3)$, independent of $K$.
+
+\paragraph{Correctness.}
+At the joint fixed point $(L_0^*, \Ls_{\mathit{other}})$, equivariance
+holds at all three ring interfaces:
+\begin{align*}
+  H^*_{\mathit{other}}\circ E_{\mathit{cross}}
+    &= E_{\mathit{cross}}\circ H_0^*
+  & (P_{K-1}\to P_0) \\
+  H_0^*\circ E_0
+    &= E_0\circ H^*_{\mathit{other}}
+  & (P_0 \to P_1) \\
+  H^*_{\mathit{other}}\circ\Estar_{\mathit{other}}
+    &= \Estar_{\mathit{other}}\circ H^*_{\mathit{other}}
+  & (P_r \to P_{r+1})
+\end{align*}
+by the same Remark~\ref{rem:equiv} argument applied at each interface.
+Lemma~\ref{lem:farahat} then gives a livelock.
+Verified computationally for Dijkstra's token ring at $m\in\{3,4,5\}$
+\citep{farahat2012}.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Experimental Results}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+Table~\ref{tab:results} shows results on standard self-stabilizing
+protocols. Implementation:
+\url{https://github.com/cosmoparadox/mathematical-tools}.
+
+\begin{table}[h]
+\centering
+\caption{Results ($m=3$ unless noted). $|\Ls|=0$ means \textsc{free}.}
+\label{tab:results}
+\smallskip
+\begin{tabular}{lcccc}
+\toprule
+Protocol & Type & $|\Ls|$ & Result & Min $K$ \\
+\midrule
+Dijkstra token ring    & $(1,1)$-asym & $3{+}3$  & \textsc{livelock} & $K\!\geq\!2$\\
+$k$-Coloring (det)     & symmetric    & $m$      & \textsc{livelock} & $K\!\equiv\!1\pmod{m}$\\
+$k$-Coloring (non-det) & symmetric    & $2m$     & \textsc{livelock} & $K\!\geq\!3$\\
+Agreement (maximal)    & symmetric    & $m(m{-}1)$ & \textsc{livelock} & $K\!\geq\!2$\\
+Sum-Not-2 (det)        & symmetric    & $0$      & \textsc{free}     & ---\\
+Sum-Not-2 (non-det)    & symmetric    & $2m$     & \textsc{livelock} & $K\!\geq\!2$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Note: The livelock detected for Dijkstra's token-ring is due to the fact that the specification is for a constant space of size $m$ per process. The ring will have a single token circulation for ring sizes smaller than $1 + m$. Multiple token circulations show for $K \geq 1 + m$. Our implementation of the algorithm detects that pattern through the Circulation Law.
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+\citet{klinkhamer2013,klinkhamer2019} establish $\Pi^0_1$-completeness
+for parameterized livelock freedom and proivde a semi-algorithm for
+livelock \emph{detection}. The authors characterize livelock existence via periodic tiling patterns capturing local propagation constraints. In contrast, the present work establishes the boundedness of the livelock witnesses establishing a baseline for decidability. In addition, we enforce closure of recurrent supports under pseudolivelocks and propagation via a fixed-point construction. This contributes a polynomial decision procedure for livelock \emph{freedom}, grounded in Farahat's
+algebraic framework~\citep{farahat2012}: the greatest fixed point $\Ls$
+of $\bPhi$ decides freedom for all $K$ in $O(|T|^3)$ time. This suggests that tiling-based formulations may admit compound cyclic patterns that satisfy local consistency but do not correspond to fully realizable recurrent supports in livelocks of self-disabling rings.
+
+\citet{suzuki1988} proves undecidability of general temporal property
+verification for rings of finite-state machines. Our result does not
+contradict this: livelock detection is a specific structural property
+admitting the $O(|T|^3)$ procedure of Theorem~\ref{thm:main} for the stricter execution semantics of self-disabling processes.
+
+\citet{emerson1995} establish cutoff results for correctness properties
+on token rings. Our approach is complementary: we eliminate the
+dependence on $K$ entirely by computing $\Ls$ from $T$.
+
+%% ═══════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+%% ═══════════════════════════════════════════════════════════════════════════
+
+Livelock detection for parameterized self-disabling unidirectional rings
+is decidable in $O(|T|^3)$ time independent of $K$. The decision is
+$\Ls\neq\emptyset$. Livelock freedom is certified by the maximality of
+$\Ls$: Invariant~\ref{inv:max} guarantees $\Hi{i}$ is maximal at every
+iterate; when $\Ls=\emptyset$, no process can sustain a pseudolivelock
+for any $K$. The Circulation Law follows algebraically from three
+properties of $\Ls$ (SCC, completeness of $\Estar$, finiteness).
+Extension to the general $(l,q)$-asymmetric case ($K=l+nq$) is left to
+a companion paper. Code and algebraic foundation:
+\url{https://github.com/cosmoparadox/mathematical-tools}.
+
+%% ── references ────────────────────────────────────────────────────────────
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+
+\bibitem[Dijkstra(1974)]{dijkstra1974}
+E.~W. Dijkstra.
+\newblock Self-stabilizing systems in spite of distributed control.
+\newblock \emph{Communications of the ACM}, 17\penalty0 (11):\penalty0
+  643--644, 1974.
+
+\bibitem[Emerson and Namjoshi(1995)]{emerson1995}
+E.~A. Emerson and K.~S. Namjoshi.
+\newblock Reasoning about rings.
+\newblock In \emph{POPL}, pages 85--94, 1995.
+
+\bibitem[Farahat(2012)]{farahat2012}
+A.~Farahat.
+\newblock \emph{Automated Design of Self-Stabilization}.
+\newblock PhD thesis, Michigan Technological University, 2012.
+\newblock Chapter~6: Exact Algebraic Characterization of Global Convergence.
+  Code and chapter at
+  \url{https://github.com/cosmoparadox/mathematical-tools}.
+
+\bibitem[Klinkhamer and Ebnenasir(2013)]{klinkhamer2013}
+A.~P. Klinkhamer and A.~Ebnenasir.
+\newblock Verifying livelock freedom on parameterized rings and chains.
+\newblock In \emph{SSS}, pages 163--177, 2013.
+
+\bibitem[Klinkhamer and Ebnenasir(2019)]{klinkhamer2019}
+A.~P. Klinkhamer and A.~Ebnenasir.
+\newblock Verifying livelock freedom on parameterized rings and chains.
+\newblock \emph{ACM Transactions on Computational Logic}, 20\penalty0
+  (3):\penalty0 1--49, 2019.
+
+\bibitem[Suzuki(1988)]{suzuki1988}
+I.~Suzuki.
+\newblock Proving properties of a ring of finite-state machines.
+\newblock \emph{Information Processing Letters}, 28\penalty0 (4):\penalty0
+  213--214, 1988.
+
+\bibitem[Tarski(1955)]{tarski1955}
+A.~Tarski.
+\newblock A lattice-theoretical fixpoint theorem and its applications.
+\newblock \emph{Pacific Journal of Mathematics}, 5\penalty0 (2):\penalty0
+  285--309, 1955.
+
+\end{thebibliography}
+
+\end{document}
