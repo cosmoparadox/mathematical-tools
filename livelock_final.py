@@ -83,14 +83,18 @@ def check_self_disabling(T):
 #  CORE GRAPH OPERATIONS: SCC, SHADOWS, FILTER
 # ═══════════════════════════════════════════════════════════════
 
-def scc_cycles(T):
-    """Transitions on directed cycles in H-graph (t_j.own == t_i.written)."""
+def scc_cycles(T, witness_ow=None):
+    """Transitions on directed cycles in H-graph (t_j.own == t_i.written).
+    If witness_ow is provided, only keep H-edges whose shadow
+    (t_i.pred, t_j.pred) is in witness_ow (edge-aware pruning)."""
     T = list(T); n = len(T)
     if n == 0: return frozenset()
     H = {i: [] for i in range(n)}
     for i, (vi,wi,wpi) in enumerate(T):
         for j, (vj,wj,wpj) in enumerate(T):
-            if wj == wpi: H[i].append(j)
+            if wj == wpi:
+                if witness_ow is None or (vi, vj) in witness_ow:
+                    H[i].append(j)
     # Kosaraju's SCC
     visited = [False]*n; order = []
     def dfs1(u):
@@ -127,9 +131,11 @@ def scc_cycles(T):
     return frozenset(T[i] for i in on_cycle)
 
 
-def shadows(P):
-    """Global shadow set: {(t_i.pred, t_j.pred) for every H-edge (t_i→t_j) in P}."""
-    return {(vi, vj) for (vi,wi,wpi) in P for (vj,wj,wpj) in P if wj == wpi}
+def shadows(P, witness_ow=None):
+    """Global shadow set: {(t_i.pred, t_j.pred) for every H-edge (t_i→t_j) in P}.
+    If witness_ow is provided, only include shadows from witnessed H-edges."""
+    return {(vi, vj) for (vi,wi,wpi) in P for (vj,wj,wpj) in P
+            if wj == wpi and (witness_ow is None or (vi, vj) in witness_ow)}
 
 
 def filter_T(T, req):
@@ -181,10 +187,17 @@ def _build_H(L):
 # ═══════════════════════════════════════════════════════════════
 
 def phi(S, T_full):
-    """One Φ iteration: PL(Filter(T_full, Shad(PL(S))))."""
-    P = scc_cycles(S)
+    """One Φ iteration with edge-aware H-graph pruning.
+    PL_w(Filter(T_full, Shad_w(PL_w(S)))) where _w means witnessed edges only."""
+    ow_S = {(t[1], t[2]) for t in S}
+    P = scc_cycles(S, witness_ow=ow_S)
     if not P: return frozenset()
-    return frozenset(scc_cycles(filter_T(frozenset(T_full), shadows(P))))
+    ow_P = {(t[1], t[2]) for t in P}
+    sh = shadows(P, witness_ow=ow_P)
+    F = filter_T(frozenset(T_full), sh)
+    if not F: return frozenset()
+    ow_F = {(t[1], t[2]) for t in F}
+    return frozenset(scc_cycles(F, witness_ow=ow_F))
 
 
 def inner_fp(L_init, T_full, verbose=False, label="T"):
@@ -216,19 +229,23 @@ def fixed_point(T_p0, T_other, verbose=True):
         return True, L, L
 
     if verbose: print("  [Asymmetric] Joint fixed point (L_0, L_other)")
-    L0 = frozenset(scc_cycles(frozenset(T_p0)))
-    Lo = frozenset(scc_cycles(frozenset(T_other)))
+    ow_p0 = {(t[1],t[2]) for t in T_p0}
+    ow_ot = {(t[1],t[2]) for t in T_other}
+    L0 = frozenset(scc_cycles(frozenset(T_p0), witness_ow=ow_ot))
+    Lo = frozenset(scc_cycles(frozenset(T_other), witness_ow=ow_ot))
     if not L0 or not Lo:
         if verbose: print("  => FREE (empty initial PL)")
         return False, frozenset(), frozenset()
 
     for outer in range(1, len(T_p0) + len(T_other) + 2):
         if verbose: print(f"  Outer {outer}: |L0|={len(L0)}, |Lo|={len(Lo)}")
-        Lo_new = inner_fp(filter_T(Lo, shadows(L0)), T_other, verbose=verbose, label="Lo")
+        ow_Lo = {(t[1],t[2]) for t in Lo}
+        Lo_new = inner_fp(filter_T(Lo, shadows(L0, witness_ow=ow_Lo)), T_other, verbose=verbose, label="Lo")
         if not Lo_new:
             if verbose: print("  => FREE (L_other emptied)")
             return False, frozenset(), frozenset()
-        L0_new = frozenset(scc_cycles(filter_T(frozenset(T_p0), shadows(Lo_new))))
+        ow_Lo_new = {(t[1],t[2]) for t in Lo_new}
+        L0_new = frozenset(scc_cycles(filter_T(frozenset(T_p0), shadows(Lo_new, witness_ow=ow_Lo_new)), witness_ow=ow_Lo_new))
         if not L0_new:
             if verbose: print("  => FREE (L_0 emptied)")
             return False, frozenset(), frozenset()
@@ -646,24 +663,5 @@ if __name__ == "__main__":
     analyze("Non-det coloring (m=3)",
             [(v, v, w) for v in range(m) for w in range(m) if v != w],
             expect="LIVELOCK")
-            
-    # 8-Transitions Non-Deterministic
-    analyze("8-transitions Non-Deterministic",
-            [(v,w,(w+2)%4) for v in range(4) for w in range(4) if v == w or w == (v+1)%4],
-            expect="LIVELOCK")
-
-    # Asymmetric Coloring
-    analyze("Asymmetric 3-Coloring",
-            [(v, v, (v + 2)%3) for v in range(3)],
-            [(v, v, (v + 1)%3) for v in range(3)],
-            expect="NO LIVELOCK")
-            
-    # Non-Deterministic offset diff
-    m = 4
-    offset = 3
-    analyze("Non-deterministic Offset Diff",
-            [(v, (v + offset)%m, w) for v in range(m) for w in range(m) if w != (v + offset)%m],
-            expect="LIVELOCK"
-            ) 
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")

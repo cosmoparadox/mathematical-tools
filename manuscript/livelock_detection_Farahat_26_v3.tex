@@ -61,7 +61,7 @@
 We prove that livelock detection is \emph{decidable in polynomial time}
 for parameterized symmetric unidirectional rings of self-disabling
 processes with bounded domain $\mathbb{Z}_m$.
-Given a protocol $T$, the algorithm decides whether a livelock exists
+Given a parameterized protocol with its local transition set $T$, the algorithm decides whether a livelock exists
 for \emph{some} ring size $K\!\geq\!2$, running in $O(|T|^3)$ time
 independent of $K$.
 The algorithm computes $\Ls$---the greatest fixed point of a
@@ -71,6 +71,7 @@ The livelock freedom argument rests on maximality: $\Ls$ is the
 largest set of transitions that can simultaneously sustain a
 pseudolivelock at every process; its emptiness certifies freedom for
 all $K$ without any search over ring sizes.
+We further independently demonstrate decidability of the livelock detection problem by proving that every livelock witness is bounded by a function of$|T|$, independent of K.
 The work is grounded in the algebraic characterization of livelocks
 from Farahat~\citep{farahat2012}, which establishes necessary and
 sufficient conditions for livelock existence but does not address
@@ -102,7 +103,7 @@ Klinkhamer and Ebnenasir~\citep{klinkhamer2013,klinkhamer2019} study
 this problem for self-disabling deterministic protocols, establishing
 $\Pi^0_1$-completeness and a correct semi-algorithm for livelock
 \emph{detection}.  Building on the algebraic characterization of
-Farahat~\citep{farahat2012}, where pseudolivelock and propagation are
+Farahat~\citep{farahat2012} for the same problem, where pseudolivelock and propagation are
 structured computable relations on $T$, the present paper shows that
 livelock \emph{freedom} is decidable in $O(|T|^3)$ time via the
 greatest fixed point $\Ls$ of a single operator on $T$, independent of
@@ -115,11 +116,13 @@ $T$. This runs in $O(|T|^3)$ time independent of $K$. It suffices that
 \emph{one} process has no pseudolivelock to certify freedom for all
 ring sizes simultaneously.
 
+We further show that the undecidability result established under the tiling formulation does not stem from the intrinsic behavior of the original model, but rather from an over-approximation introduced by that representation. Concretely, we prove that any livelock admits a witness whose size is bounded solely as a function of $|T|$, independently of the ring size $K$. This boundedness eliminates the source of undecidability and yields decidability.
+
 \paragraph{Foundation.}
 This paper builds on Farahat~\citep{farahat2012} (Ch.~6), which
 characterizes livelocks via the \emph{Propagation Law}
 $H\!\circ\!E = E\!\circ\!H$ and the \emph{Circulation Law}
-$H^{|E|}\cap E^K\!\neq\!\emptyset$. That work is existential and does
+$H^{e} = E^K$ on simple local cycles. That work is existential and does
 not address decidability. The present paper makes it computationally
 effective. Code and the dissertation chapter are at
 \url{https://github.com/cosmoparadox/mathematical-tools}.
@@ -149,9 +152,9 @@ A transition $t=(v,w,w')\in T$ satisfies $w'\neq w$ (the written value
 differs from the own value). It is \emph{self-disabling} if no
 transition in $T$ has the form $(v, w', w'')$ for any $w''\in\Zm$;
 that is, no transition in $T$ shares the same predecessor value $v$
-and has own value equal to the written value $w'$ of $t$. Intuitively,
+and has own value equal to the written value $w'$ of any transition $t \in T$. Intuitively,
 after $t$ fires and sets $x_r\!\leftarrow\!w'$, process $P_r$ cannot
-fire again even if the predecessor value stays $v$, because no
+fire again if the predecessor value stays at $v$, because no
 transition is enabled with $(\pred,\own) = (v,w')$.
 Throughout this paper, \emph{all transitions in $T$ are assumed
 self-disabling}.
@@ -343,8 +346,38 @@ predecessor process $P_{r-1}$ must fire to make the edge $(t_i\to t_j)$
 propagate forward to $P_r$.
 \end{definition}
 
+\subsection{Intuition of the Livelock Witness}
+
+We illustrate a graph-theoretic intuition to ease the reasong about our livelock witness. To this end, we leverage a symmetric $4$-coloring transitions set 
+\[
+T_c = \{ (v, v, (v + 1) \bmod 4) \mid v \in \mathbb{Z}_4 \}.
+\]
+Let $t_v \triangleq (v, v, (v + 1) \bmod 4)$ denote a transition parameterized by $v$.
+
+As such, we extract the pseudolivelock relation consisting of a single cycle,
+\[
+H = \{ (t_v, t_{(v + 1) \bmod 4}) \mid v \in \mathbb{Z}_4 \}.
+\]
+
+Similarly, the propagation relation turns out to be a single cycle,
+\[
+E = \{ (t_v, t_{(v + 1) \bmod 4}) \mid v \in \mathbb{Z}_4 \}.
+\]
+
+The set $E$ is determined by the correspondence between the shadow (horizontal arc) connecting the target state of $t_v$ to the source state of $t_{(v + 1) \bmod 4}$, and transitions in the original transition set. In particular, any transition $t^{r-1}$ in the predecessor layer such that
+\[
+t^{r-1}.\mathtt{own} = t_v.\mathtt{pred}
+\;\wedge\;
+t^{r-1}.\mathtt{next} = t_{(v+1) \bmod 4}.\mathtt{pred}
+\]
+is an enabler of $t_{(v + 1) \bmod 4}$.
+
+By construction, all horizontal arcs (shadows) correspond to actual transitions in the predecessor layer, ensuring closure of cycles in $P_r$. A sufficient condition for cycle closure is that the enablers of every closed walk (cycle) in $P_r$ themselves form a closed walk (cycle) of transitions (pseudolivelocks) in $P_{r-1}$ recursively enabled by its predecessor $P_{r-2}$ until the ring closes back to $P_r$ from $P_{r+1}$. This intuitively justifies the algorithmic decider in Section \ref{sec:algorithm}.
+
+   
 %% ═══════════════════════════════════════════════════════════════════════════
 \section{Algorithm}
+\label{sec:algorithm}
 %% ═══════════════════════════════════════════════════════════════════════════
 
 \begin{algorithm}[h]
