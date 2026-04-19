@@ -8,7 +8,7 @@ symmetric unidirectional rings of self-disabling processes.
 
 **Theorem.** Livelock existence for a self-disabling protocol T on a
 unidirectional ring of K processes (K ≥ 2, K arbitrary) is decidable in
-**O(|T|³) time, independent of K**.
+**O(|T|^5) time, independent of K**.
 
 A livelock is an infinite execution in which every process fires transitions
 indefinitely without any process stabilizing. The decision is independent of
@@ -28,7 +28,7 @@ guarantees that hold regardless of ring size.
 ## Algorithm
 
 The algorithm is based on the **shadow fixed point** — the greatest fixed point
-of a deflationary monotone operator on the finite transition set T:
+of a deflationary monotone operator on the finite product-graph set T x T:
 
 ```
 Φ(S) = PL(Filter(S, Shad(PL(S))))
@@ -48,54 +48,30 @@ Starting from S = T, iterate Φ until stability. The stable set L* is the
 ## Quick Start
 
 ```python
-python3 livelock_final.py
+python3 livelock_complete.py
 ```
 
-Or use the `analyze` function directly:
+Or use the --cycle argument to display the cyclic analysis of livelocks in every protocol.
 
 ```python
-from livelock_final import analyze
-
-m = 3
-
-# Dijkstra's token ring
-T_p0    = [(v, v, (v+1)%m) for v in range(m)]           # P_0: coloring
-T_other = [(v, w, v) for v in range(m)                   # P_other: agreement
-           for w in range(m) if v != w]
-
-analyze("Dijkstra token ring (m=3)", T_p0, T_other, expect="LIVELOCK")
-
-# k-coloring (symmetric)
-T_col = [(v, v, (v+1)%m) for v in range(m)]
-analyze("k-Coloring (m=3)", T_col, expect="LIVELOCK")
-
-# Sum-Not-2 (livelock-free)
-T_sn2 = [(v, w, (w+1)%m) for v in range(m) for w in range(m)
-          if (v+w)%m == m-1]
-analyze("Sum-Not-2 det (m=3)", T_sn2, expect="NO LIVELOCK")
+python3 livelock_complete.py --cycles
 ```
 
-## Output
+
+## Key Result: Bounded Witness
+Every product graph is a bounded witness of Strongly-Connected-Components (SCCs) representing
+the greatest fixed point of suviving equivariant cycles in the 2D Cartesian product space of the protocol
+local transitions. Every closed walk in the SCC is recursively equivariant to another closed walk in the same
+directed graph. This guarantees to sustained local cycles across rings and number of enablements constrainted only
+by the circulation law. Equivariance guarantees that a closed walk of length N propagates to closed walk of length N.
+Universal qunaitifcation of all cycles, guarantees that simple cycles are enough of a witness to guarantee livelock existence. 
 
 For each protocol the algorithm reports:
 
 - Whether a livelock exists
 - The livelock kernel L* (transitions participating in the livelock)
 - The Circulation Law: valid (|E|, K) pairs — the ring sizes that admit livelocks
-- The Propagation Law check: H ∘ E = E ∘ H at every process interface
-
-Example output for Dijkstra's token ring:
-
-```
-═══════════════════════════════════════════════════════════
-  Dijkstra token ring (m=3)
-═══════════════════════════════════════════════════════════
-  P_0 kernel   : [(0,0,1), (1,1,2), (2,2,0)]
-  P_other kernel: [(0,2,0), (1,0,1), (2,1,2)]
-  Minimum |E| = 1,  minimum K = 2,  K step = 1
-  Propagation Law: ✓ at all interfaces
-  => LIVELOCK
-```
+- the cycle decomposition of the local transitions if a livelock exists.
 
 ## Theoretical Foundation
 
@@ -109,12 +85,9 @@ and propagation relation E* satisfy the equivariance condition
 whenever L* ≠ ∅ — it is a consequence of the construction, not an
 independent condition to verify.
 
-**Circulation Law.** The valid ring sizes K are characterized by
-`H*^|E| ∩ E^K ≠ ∅`. This too follows as a theorem from three algebraic
-properties of L*: (P1) H* is an SCC relation, (P2) E* maps L* completely
-into L*, (P3) L* is finite. Together these imply that both H*^p and (E^K)^q
-have full diagonals, so their intersection is always non-empty.
-
+**Circulation Law.** The number of enablements a simple local cycle encounters matches
+the advancement done by K-propagations through K-closed equivariant local closed-walks
+of the same length. 
 ## Supported Protocol Classes
 
 | Protocol | Symmetric | Result |
