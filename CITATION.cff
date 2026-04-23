@@ -1,37 +1,68 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
-title: "Livelock Detection in Parameterized Uni-Rings of Self-Disabling Processes"
+title: "Decidability of Livelock Detection in Self-Disabling Unidirectional Ring Protocols"
 abstract: >
   A polynomial-time algorithm for deciding livelock freedom in parameterized
   symmetric unidirectional rings of self-disabling processes. The algorithm
-  is based on the shadow fixed point — the greatest fixed point of a
-  deflationary monotone operator on the finite transition set — and runs in
-  O(|T|^3) time independent of ring size K. The theoretical foundation is
-  the algebraic characterization of livelocks via the Propagation Law
-  (H* ∘ E* = E* ∘ H*) and the Circulation Law (H*^|E| ∩ E^K ≠ ∅), both
-  of which are shown to be consequences of the fixed point construction
-  rather than independent conditions to verify.
+  constructs a product transition graph whose nodes are equivariant
+  transition-witness pairs and computes the greatest witness-closed subset
+  via monotone fixed-point iteration. A protocol admits a livelock if and
+  only if this subset is non-empty. The theoretical foundation is the
+  bounded witness theorem: equivariance forces the tiling period to be at
+  most |T|^2, collapsing the a priori unbounded search into a finite one.
+  The backward propagation lemma establishes that closure and period are
+  preserved under backward equivariant propagation, with chaining forced
+  by a shared boundary value in the zigzag. The algorithm handles
+  non-deterministic protocols and extends to (1,1)-asymmetric rings.
+  A circulation law classifies livelock structures by ring size.
 repository-code: "https://github.com/cosmoparadox/mathematical-tools"
 license: MIT
-date-released: "2025-03-19"
+date-released: "2026-04-22"
 keywords:
   - livelock detection
   - self-stabilization
   - parameterized verification
   - unidirectional ring
   - self-disabling processes
-  - shadow fixed point
-  - propagation law
+  - product transition graph
+  - equivariance
+  - bounded witness
+  - backward propagation
   - circulation law
+  - decidability
   - distributed algorithms
   - formal verification
-
+authors:
+  - family-names: Farahat
+    given-names: Aly
 references:
-  - type: article
-    title: >
-      Exact Algebraic Characterization of Global Livelocks in Unidirectional Rings
-    notes: "Chapter 6 — included as PDF in this repository"
+  - type: thesis
+    title: "Automated Design of Self-Stabilization"
     authors:
-      - family-names: "Farahat, A."
-    year: 2026
+      - family-names: Farahat
+        given-names: Aly
+    year: 2012
+    institution:
+      name: Michigan Technological University
+  - type: conference-paper
+    title: "Local Reasoning for Global Convergence of Parameterized Rings"
+    authors:
+      - family-names: Farahat
+        given-names: Aly
+      - family-names: Ebnenasir
+        given-names: Ali
+    year: 2012
+    collection-title: "Proceedings of IEEE ICDCS"
+    pages: "496-505"
+  - type: article
+    title: "On the Verification of Livelock-Freedom and Self-Stabilization on Parameterized Rings"
+    authors:
+      - family-names: Klinkhamer
+        given-names: Alex
+      - family-names: Ebnenasir
+        given-names: Ali
+    year: 2019
+    journal: "ACM Transactions on Computational Logic"
+    volume: 20
+    issue: 3

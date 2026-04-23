@@ -404,7 +404,11 @@ def _symmetric_2d_fp(T, verbose=False):
         arcs = {(i, j) for (i, j) in arcs
                 if nodes[i][1] in s_t and nodes[j][1] in s_t}
 
-        # 2.3 Zigzag: w-pair must have predecessor arc with u,v ∈ S_t
+        # 2.3 Zigzag: w-pair must have predecessor support in the
+        #     ORIGINAL graph (tpair_to_uv, precomputed once) with
+        #     u,v ∈ S_t (current surviving transitions).
+        #     The original graph is the structural reference;
+        #     S_t is the only dynamic filter.
         new_arcs = set()
         for (i, j) in arcs:
             w1 = nodes[i][1]
