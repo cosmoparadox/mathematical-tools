@@ -11,6 +11,7 @@ sizes simultaneously.
 ## Table of Contents
 
 - [Overview](#overview)
+- [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Specifying a Protocol](#specifying-a-protocol)
 - [Running the Analyzer](#running-the-analyzer)
@@ -31,6 +32,17 @@ A protocol is **self-disabling** if for every (p, o, w) in T, there is no (p, w,
 A **livelock** is an infinite execution where processes keep firing without ever reaching a legitimate state. The **parameterized** question: does a livelock exist for *any* ring size K >= 2?
 
 This tool decides the parameterized livelock question in polynomial time by constructing a **product transition graph** and computing its greatest witness-closed subset via monotone fixed-point iteration.
+
+---
+
+## Installation
+
+Clone the repository and run directly using Python:
+
+```bash
+git clone https://github.com/cosmoparadox/mathematical-tools
+cd mathematical-tools
+python run_protocol.py --list-examples
 
 ---
 
@@ -137,10 +149,11 @@ run_protocol.py [OPTIONS] [PROTOCOL]
 
 ---
 
+
 ## Built-in Examples
 
-| Name | m | |T| | Result | Description |
-|------|---|-----|--------|-------------|
+| Name | m | \|T\| | Result | Description |
+|------|---|--------|--------|-------------|
 | coloring3 | 3 | 3 | Livelock | Classic self-stabilizing coloring |
 | coloring4 | 4 | 4 | Livelock | 4-value coloring |
 | sum_not_2 | 3 | 3 | Free | Classic livelock-free protocol |
