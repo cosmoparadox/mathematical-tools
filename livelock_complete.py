@@ -310,18 +310,22 @@ def _symmetric_2d_fp(T, verbose=False):
 
     Algorithm:
       1. Build product graph G_×(T) once with four equivariance conditions.
+         Node condition: wr(w) = pred(t).
+         Arc conditions: own(t2) = wr(t1), own(w2) = wr(w1).
       2. Iterate until stable:
          - SCC: remove arcs not on cycles.
          - Square: S_t = t-components on cycles; remove arcs where w ∉ S_t.
-         - Zigzag: for each arc with w-pair (w1,w2), verify an arc
-           (w1,u)→(w2,v) exists in G_×(T) with u,v ∈ S_t.
+         - Backward closure: for each arc with w-pair (w1,w2), verify
+           (w1,w2) appears as a t-pair on some arc on a cycle.
 
-    Returns frozenset of surviving transitions (L*), or empty if livelock-free.
+    Returns (L_star, gstar_data) where:
+      L_star: frozenset of surviving transitions, or empty if livelock-free.
+      gstar_data: (Ls, nodes, arcs) for backtracking, or None.
     """
     Ls = sorted(set(T))
     n = len(Ls)
     if n == 0:
-        return frozenset()
+        return frozenset(), None
 
     # ── Pre-prune: 1D SCC on H-graph ─────────────────────────
     adj1 = defaultdict(list)
@@ -333,35 +337,30 @@ def _symmetric_2d_fp(T, verbose=False):
     Ls = [Ls[i] for i in sorted(on1)]
     n = len(Ls)
     if n == 0:
-        return frozenset()
+        return frozenset(), None
 
     # ── Step 1: Build product graph ONCE ──────────────────────
-    # Nodes: (ti, wi) where own(w) = pred(t)
+    # Nodes: (ti, wi) where wr(w) = pred(t)
     nodes = []
     for ti in range(n):
         for wi in range(n):
-            if Ls[wi][1] == Ls[ti][0]:
+            if Ls[wi][2] == Ls[ti][0]:
                 nodes.append((ti, wi))
     if not nodes:
-        return frozenset()
+        return frozenset(), None
 
-    # Arcs: four equivariance conditions
+    # Arcs: own(t2) = wr(t1), own(w2) = wr(w1)
     all_arcs = set()
     for i, (t1, w1) in enumerate(nodes):
         for j, (t2, w2) in enumerate(nodes):
             if Ls[t2][1] == Ls[t1][2] and Ls[w2][1] == Ls[w1][2]:
                 all_arcs.add((i, j))
     if not all_arcs:
-        return frozenset()
-
-    # Precompute: for each t-pair, which (u, v) w-pairs exist?
-    tpair_to_uv = defaultdict(set)
-    for (i, j) in all_arcs:
-        tpair_to_uv[(nodes[i][0], nodes[j][0])].add((nodes[i][1], nodes[j][1]))
+        return frozenset(), None
 
     arcs = set(all_arcs)
 
-    # ── Step 2: Iterate SCC + Square + Zigzag ─────────────────
+    # ── Step 2: Iterate SCC + Square + Backward closure ───────
     for iteration in range(len(all_arcs) + 1):
         prev_arcs = len(arcs)
 
@@ -375,7 +374,7 @@ def _symmetric_2d_fp(T, verbose=False):
         if not live_nodes:
             if verbose:
                 print(f"    [T] 2D collapsed to ∅")
-            return frozenset()
+            return frozenset(), None
 
         nlist = sorted(live_nodes)
         nidx = {v: k for k, v in enumerate(nlist)}
@@ -391,7 +390,7 @@ def _symmetric_2d_fp(T, verbose=False):
         if not on_cycle:
             if verbose:
                 print(f"    [T] 2D collapsed to ∅")
-            return frozenset()
+            return frozenset(), None
 
         arcs = {(i, j) for (i, j) in arcs
                 if i in on_cycle and j in on_cycle}
@@ -404,24 +403,26 @@ def _symmetric_2d_fp(T, verbose=False):
         arcs = {(i, j) for (i, j) in arcs
                 if nodes[i][1] in s_t and nodes[j][1] in s_t}
 
-        # 2.3 Zigzag: w-pair must have predecessor support in the
-        #     ORIGINAL graph (tpair_to_uv, precomputed once) with
-        #     u,v ∈ S_t (current surviving transitions).
-        #     The original graph is the structural reference;
-        #     S_t is the only dynamic filter.
+        # 2.3 Backward closure: for each arc with w-pair (w1,w2),
+        #     verify that (w1,w2) appears as a t-pair on some arc
+        #     currently on a cycle.
+        t_pairs_on_cycle = set()
+        for (i, j) in arcs:
+            if i in on_cycle and j in on_cycle:
+                t_pairs_on_cycle.add((nodes[i][0], nodes[j][0]))
+
         new_arcs = set()
         for (i, j) in arcs:
             w1 = nodes[i][1]
             w2 = nodes[j][1]
-            uv_candidates = tpair_to_uv.get((w1, w2), set())
-            if any(u in s_t and v in s_t for u, v in uv_candidates):
+            if (w1, w2) in t_pairs_on_cycle:
                 new_arcs.add((i, j))
         arcs = new_arcs
 
         if not arcs:
             if verbose:
                 print(f"    [T] 2D collapsed to ∅")
-            return frozenset()
+            return frozenset(), None
 
         if len(arcs) == prev_arcs:
             # Stable — collect surviving transitions
@@ -431,8 +432,9 @@ def _symmetric_2d_fp(T, verbose=False):
                 final_s_t.add(nodes[j][0])
             L_star = frozenset(Ls[i] for i in final_s_t)
             if verbose:
-                print(f"    [T] 2D fixed point: {len(L_star)} transitions")
-            return L_star
+                print(f"    [T] 2D fixed point: {len(L_star)} transitions, "
+                      f"{len(arcs)} arcs in G*")
+            return L_star, (Ls, nodes, arcs)
 
         if verbose:
             # Count surviving transitions for progress
@@ -445,7 +447,114 @@ def _symmetric_2d_fp(T, verbose=False):
 
     if verbose:
         print(f"    [T] 2D collapsed to ∅")
-    return frozenset()
+    return frozenset(), None
+
+
+def _find_simple_cycles_gstar(arcs, max_len=20, max_cycles=5000):
+    """Find simple cycles in G* (product graph arcs), shortest first."""
+    adj = defaultdict(list)
+    nodes_set = set()
+    for (i, j) in arcs:
+        adj[i].append(j)
+        nodes_set.add(i)
+        nodes_set.add(j)
+    max_len = min(max_len, len(nodes_set))
+    cycles = []
+    for start in sorted(nodes_set):
+        stack = [(start, [start])]
+        while stack:
+            if len(cycles) >= max_cycles:
+                return cycles
+            v, path = stack.pop()
+            if len(path) > max_len:
+                continue
+            for nxt in adj[v]:
+                if nxt == start and len(path) >= 2:
+                    cycles.append(tuple(path))
+                elif nxt > start and nxt not in path:
+                    stack.append((nxt, path + [nxt]))
+    return cycles
+
+
+def _backward_propagate_cycle(nodes, gstar_arcs, cycle_nodes):
+    """Find a backward cycle in G* whose t-walk matches the given cycle's w-walk.
+
+    Returns a tuple of G* node indices forming the backward cycle, or None.
+    """
+    N = len(cycle_nodes)
+    w_indices = [nodes[v][1] for v in cycle_nodes]
+
+    adj = defaultdict(list)
+    for (i, j) in gstar_arcs:
+        adj[i].append(j)
+
+    gstar_nodes = set(i for a in gstar_arcs for i in a)
+    pos_candidates = [[] for _ in range(N)]
+    for v in gstar_nodes:
+        ti = nodes[v][0]
+        for k in range(N):
+            if ti == w_indices[k]:
+                pos_candidates[k].append(v)
+
+    result = [None]
+
+    def search(k, path):
+        if k == N:
+            if path[0] in adj.get(path[-1], []):
+                result[0] = tuple(path)
+                return True
+            return False
+        for v in pos_candidates[k]:
+            if k == 0 or v in adj.get(path[-1], []):
+                path.append(v)
+                if search(k + 1, path):
+                    return True
+                path.pop()
+        return False
+
+    search(0, [])
+    return result[0]
+
+
+def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
+    """Backtracking verification on G*.
+
+    For each simple cycle in G*, backward-propagate through G* until:
+      - The chain of walks repeats → LIVELOCK (return True)
+      - Backward propagation fails → try next cycle
+
+    If all cycles fail, return False (no livelock from simple cycles).
+    """
+    cycles = _find_simple_cycles_gstar(gstar_arcs, max_len=min(20, len(Ls) ** 2))
+    if verbose:
+        print(f"    [T] Backtracking: {len(cycles)} simple cycles in G*")
+
+    for ci, cyc in enumerate(cycles):
+        N = len(cyc)
+        visited_walks = set()
+        current = cyc
+
+        for depth in range(10000):
+            t_key = tuple(nodes[v][0] for v in current)
+
+            if t_key in visited_walks:
+                if verbose:
+                    t_walk = [Ls[nodes[v][0]] for v in cyc]
+                    print(f"    [T] Cycle {ci} (N={N}) closes at depth {depth} "
+                          f"→ LIVELOCK")
+                    print(f"         t-walk: {t_walk}")
+                return True
+
+            visited_walks.add(t_key)
+
+            backward = _backward_propagate_cycle(nodes, gstar_arcs, current)
+            if backward is None:
+                break
+            current = backward
+
+    if verbose:
+        print(f"    [T] All {len(cycles)} cycles fail backward propagation")
+    return False
 
 
 def inner_fp(L_init, T_full, verbose=False, label="T"):
@@ -471,12 +580,22 @@ def fixed_point(T_p0, T_other, verbose=True):
 
     if symmetric:
         if verbose: print("  [Symmetric] 2D product-graph fixed point")
-        L = _symmetric_2d_fp(T_p0, verbose=verbose)
+        L, gstar_data = _symmetric_2d_fp(T_p0, verbose=verbose)
         if not L:
-            if verbose: print("  => FREE")
+            if verbose: print("  => FREE (G* = ∅)")
             return False, frozenset(), frozenset()
-        if verbose: print(f"  => LIVELOCK: L* = {sorted(L)}")
-        return True, L, L
+        # G* non-empty: verify via backtracking
+        Ls, nodes, arcs = gstar_data
+        if verbose:
+            print("  [Symmetric] G* non-empty — backtracking verification")
+        verified = _backtrack_verify(Ls, nodes, arcs, verbose=verbose)
+        if verified:
+            if verbose: print(f"  => LIVELOCK: L* = {sorted(L)}")
+            return True, L, L
+        else:
+            if verbose: print("  => INCONCLUSIVE (G* non-empty, no simple cycle closes)")
+            # Return False but with non-empty L to signal INCONCLUSIVE
+            return False, L, L
 
     if verbose: print("  [Asymmetric] Joint fixed point (L_0, L_other)")
     # Initial: SCC with edge pruning
@@ -1372,10 +1491,69 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None, trace_cycles=False):
             print(f"  {'─'*50}")
             trace_witness_chains(ko, verbose=True)
 
-    ok = (has_ll == (expect=="LIVELOCK")) if expect else None
+    # Determine status: LIVELOCK, FREE, or INCONCLUSIVE
+    if has_ll:
+        status = "LIVELOCK"
+    elif k0 or ko:
+        status = "INCONCLUSIVE"
+    else:
+        status = "NO LIVELOCK"
+
+    ok = None
+    if expect:
+        if expect == "LIVELOCK":
+            ok = has_ll
+        elif expect == "NO LIVELOCK":
+            ok = (not has_ll and not k0)
+        elif expect == "INCONCLUSIVE":
+            ok = (not has_ll and bool(k0))
     tag = " ✓" if ok else (" ✗" if ok is False else "")
-    print(f"\n  => {'LIVELOCK' if has_ll else 'NO LIVELOCK'}{tag}")
+    print(f"\n  => {status}{tag}")
     return has_ll
+
+
+def wang_to_self_disabling(wang_tiles_ke, n_vert=None, n_horiz=None):
+    """Convert Wang tiles to a self-disabling protocol via K&E's Lemma 4.8 gadget.
+
+    Wang tiles are (W, N, S, E) in K&E convention.
+    W and E use vertical colors (0..n_vert-1).
+    N and S use horizontal colors (0..n_horiz-1).
+
+    Returns a sorted list of (pred, own, wr) transitions.
+    """
+    if n_vert is None:
+        n_vert = max(max(t[0], t[3]) for t in wang_tiles_ke) + 1
+    if n_horiz is None:
+        n_horiz = max(max(t[1], t[2]) for t in wang_tiles_ke) + 1
+
+    DOLLAR = 0
+    color_map = {'$': DOLLAR}
+    next_id = 1
+    for c in range(n_vert):
+        color_map[('R', c)] = next_id
+        next_id += 1
+    for c in range(n_horiz):
+        color_map[('U', c)] = next_id
+        next_id += 1
+    for tile in wang_tiles_ke:
+        color_map[('C', tile)] = next_id
+        next_id += 1
+
+    T = []
+    for w, n, s, e in wang_tiles_ke:
+        comp = color_map[('C', (w, n, s, e))]
+        T.extend([
+            (color_map[('R', w)], color_map[('U', n)], comp),
+            (DOLLAR, comp, color_map[('U', s)]),
+            (comp, DOLLAR, color_map[('R', e)]),
+            (color_map[('U', s)], color_map[('R', e)], DOLLAR),
+        ])
+
+    T = sorted(set(T))
+    sd, viol = check_self_disabling(T)
+    if not sd:
+        raise ValueError(f"Gadget produced non-self-disabling protocol: {viol}")
+    return T
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1532,5 +1710,31 @@ if __name__ == "__main__":
             [(0,1,0),(0,1,2),(0,1,3),(1,1,0),(1,1,2),(1,3,0),(2,1,0),
              (2,2,0),(2,3,0),(3,1,0),(3,1,2),(3,3,0),(3,3,2)],
             expect="NO LIVELOCK", trace_cycles=trace)
+
+    # ── K&E adversarial protocol (from their SE tiling construction) ──
+    analyze("K&E adversarial SE tiling (m=15)",
+            [(0,5,9),(0,11,3),(3,14,6),(6,2,0),(9,8,6),(1,0,7),(1,3,4),
+             (4,6,1),(7,9,10),(10,6,13),(13,0,1),(2,4,5),(2,10,11),
+             (5,1,8),(8,7,2),(11,13,14),(14,1,2)],
+            expect="LIVELOCK", trace_cycles=trace)
+
+    # ── Kari's aperiodic Wang tiles via K&E's Lemma 4.8 gadget ───────
+    # Kari (1996): 14-tile NW-deterministic set that tiles the plane
+    # aperiodically. Via K&E's gadget, this becomes a 54-transition
+    # self-disabling protocol. Since no periodic tiling exists,
+    # no livelock should exist.
+    print(f"\n{'═'*60}")
+    print(f"  Kari aperiodic tiles via K&E gadget")
+    print(f"  Expected: NO LIVELOCK (aperiodic = no periodic tiling)")
+    print(f"{'═'*60}")
+    T_kari = wang_to_self_disabling([
+        # M2 tiles (W,N,S,E) in K&E convention — Kari's Mealy machine M2
+        (5,0,1,4), (5,1,2,5), (4,1,1,5), (4,1,2,4),
+        # M2/3 tiles — Kari's Mealy machine M2/3 (distinct vertical colors)
+        (0,1,0,2), (0,2,1,1), (1,1,0,3), (1,1,1,0), (1,2,1,2),
+        (2,1,1,1), (2,2,1,3), (2,2,2,0), (3,1,1,2), (3,2,2,1),
+    ], n_vert=6, n_horiz=3)
+    analyze("Kari aperiodic (14 tiles → 54 transitions)", T_kari,
+            expect="INCONCLUSIVE", trace_cycles=trace)
 
     print(f"\n{'═'*60}\n  DONE\n{'═'*60}")

@@ -301,8 +301,13 @@ Examples:
         # Minimal output
         T_other = T
         T_zero = T_p0 if T_p0 else T
-        has_ll, _, _ = lc.fixed_point(T_zero, T_other, verbose=False)
-        print("LIVELOCK" if has_ll else "NO LIVELOCK")
+        has_ll, k0, _ = lc.fixed_point(T_zero, T_other, verbose=False)
+        if has_ll:
+            print("LIVELOCK")
+        elif k0:
+            print("INCONCLUSIVE")
+        else:
+            print("NO LIVELOCK")
         return
 
     # Full analysis

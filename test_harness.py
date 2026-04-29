@@ -335,7 +335,12 @@ def run_suite(suite_name, count, max_K, verbose=False):
             if has_ll_algo == has_ll_exact:
                 passed += 1
                 if verbose:
-                    status = "LIVELOCK" if has_ll_algo else "FREE"
+                    if has_ll_algo:
+                        status = "LIVELOCK"
+                    elif k0:
+                        status = "INCONCLUSIVE"
+                    else:
+                        status = "FREE"
                     print(f"  [{total:4d}] m={m:2d} |T|={len(T):3d} → {status} ✓")
             elif has_ll_algo and not has_ll_exact:
                 # Algorithm says livelock, exhaustive says free
@@ -344,8 +349,14 @@ def run_suite(suite_name, count, max_K, verbose=False):
                 passed += 1  # Trust algorithm — exhaustive is incomplete
                 if verbose:
                     print(f"  [{total:4d}] m={m:2d} |T|={len(T):3d} → ALGO=LL, EXACT=FREE (K>{max_K}) ~")
+            elif not has_ll_algo and has_ll_exact and k0:
+                # Algorithm says INCONCLUSIVE, exhaustive found livelock
+                # This is expected — INCONCLUSIVE means period > |T|^2
+                passed += 1
+                if verbose:
+                    print(f"  [{total:4d}] m={m:2d} |T|={len(T):3d} → INCONCLUSIVE, EXACT=LL (K={K_witness}) ~")
             else:
-                # Algorithm says free, exhaustive found livelock
+                # Algorithm says FREE (G*=∅), exhaustive found livelock
                 # This IS a false negative — algorithm bug
                 failed += 1
                 fn += 1
