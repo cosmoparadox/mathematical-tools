@@ -154,6 +154,21 @@ EXAMPLES = {
         "T": [(v, v, w) for v in range(3) for w in range(3) if v != w],
         "description": "Non-deterministic coloring: change to any other value.",
     },
+    "barrier_clock": {
+        "name": "Barrier Phase Clock (m=5)",
+        "T": [(p, o, (o+1) % 5) for p in range(5) for o in range(5) if (p - o) % 5 == 1],
+        "description": "Advance phase only if predecessor is one phase ahead. Livelock.",
+    },
+    "burns_me": {
+        "name": "Burns Mutual Exclusion (m=3)",
+        "T": [(0,0,1),(0,1,2),(1,2,0),(2,2,0),(2,1,0),(1,1,0)],
+        "description": "Non-self-disabling ME protocol. States: idle/trying/critical.",
+    },
+    "cache_coherence": {
+        "name": "Write-Invalidate Cache Coherence (m=4)",
+        "T": [(3,1,0),(3,2,0),(3,3,0),(0,0,1),(1,0,1),(1,1,2),(0,1,2),(0,2,3),(0,3,1),(1,3,1)],
+        "description": "Simplified MESI on ring bus. Non-SD. Local cycle under pred=Invalid.",
+    },
 }
 
 
@@ -301,6 +316,17 @@ Examples:
         # Minimal output
         T_other = T
         T_zero = T_p0 if T_p0 else T
+        # Check self-disabling; augment if needed
+        sd0, _ = lc.check_self_disabling(T_zero)
+        sd1, _ = lc.check_self_disabling(T_other)
+        if not sd0:
+            T_zero, local_ll, _ = lc.augment_transitive_closure(T_zero)
+            if local_ll:
+                print("LIVELOCK"); return
+        if not sd1:
+            T_other, local_ll, _ = lc.augment_transitive_closure(T_other)
+            if local_ll:
+                print("LIVELOCK"); return
         has_ll, k0, _ = lc.fixed_point(T_zero, T_other, verbose=False)
         if has_ll:
             print("LIVELOCK")

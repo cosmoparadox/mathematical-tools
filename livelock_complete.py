@@ -79,6 +79,99 @@ def check_self_disabling(T):
     return True, None
 
 
+def augment_transitive_closure(T, verbose=False):
+    """
+    For non-self-disabling protocols: augment T with the transitive closure
+    of chains under each fixed pred value.
+
+    For each pred value p, transitions (p, o, w) define a directed graph
+    on domain values: o → w. If this graph has a cycle, a process can fire
+    forever under fixed pred — immediate local livelock.
+
+    Otherwise, for every pair (o_i, o_j) where o_j is reachable from o_i
+    in the chain graph, add transition (p, o_i, o_j). This captures
+    all possible "bursts" — sequences of firings under fixed pred — as
+    single macro-transitions. The augmented set is generally NOT
+    self-disabling, but the product graph algorithm works regardless.
+
+    Returns (augmented_T, has_local_livelock, cycle_info).
+    """
+    from collections import defaultdict
+
+    # Group transitions by pred
+    by_pred = defaultdict(list)
+    for p, o, w in T:
+        by_pred[p].append((o, w))
+
+    augmented = set(T)
+    
+    for p, edges in by_pred.items():
+        # Build adjacency for the chain graph under this pred
+        adj = defaultdict(set)
+        all_nodes = set()
+        for o, w in edges:
+            adj[o].add(w)
+            all_nodes.add(o)
+            all_nodes.add(w)
+
+        # Check for cycles via DFS
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {v: WHITE for v in all_nodes}
+        has_cycle = False
+        cycle_node = None
+
+        def dfs_cycle(u):
+            nonlocal has_cycle, cycle_node
+            color[u] = GRAY
+            for v in adj[u]:
+                if color[v] == GRAY:
+                    has_cycle = True
+                    cycle_node = v
+                    return
+                if color[v] == WHITE:
+                    dfs_cycle(v)
+                    if has_cycle:
+                        return
+            color[u] = BLACK
+
+        for v in all_nodes:
+            if color[v] == WHITE:
+                dfs_cycle(v)
+                if has_cycle:
+                    if verbose:
+                        print(f"  Local livelock: pred={p}, cycle at node {cycle_node}")
+                    return augmented, True, (p, cycle_node)
+
+        # No cycle — compute transitive closure (all reachable pairs)
+        for start in all_nodes:
+            # BFS/DFS from start
+            reachable = set()
+            stack = [start]
+            visited = set()
+            while stack:
+                u = stack.pop()
+                if u in visited:
+                    continue
+                visited.add(u)
+                for v in adj[u]:
+                    if v not in visited:
+                        reachable.add(v)
+                        stack.append(v)
+
+            # Add transitions for all reachable values
+            for target in reachable:
+                if target != start:  # skip self-loops (own = wr)
+                    augmented.add((p, start, target))
+
+    augmented = sorted(augmented)
+    if verbose:
+        added = len(augmented) - len(T)
+        print(f"  Transitive closure: {len(T)} → {len(augmented)} transitions "
+              f"(+{added} augmented)")
+
+    return augmented, False, None
+
+
 # ═══════════════════════════════════════════════════════════════
 #  CORE GRAPH OPERATIONS: SCC, SHADOWS, FILTER
 # ═══════════════════════════════════════════════════════════════
@@ -1476,10 +1569,29 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None, trace_cycles=False):
 
     sd0, v0 = check_self_disabling(T_p0)
     sd1, v1 = check_self_disabling(T_other)
-    if not sd0:
-        print(f"  ✗ P_0 NOT self-disabling: {v0}"); return False
-    if not sd1:
-        print(f"  ✗ P_other NOT self-disabling: {v1}"); return False
+
+    if not sd0 or not sd1:
+        if not sd0:
+            print(f"  P_0 not self-disabling: {v0}")
+            T_p0_aug, local_ll, cycle_info = augment_transitive_closure(T_p0, verbose=True)
+            if local_ll:
+                print(f"\n  => LIVELOCK (local cycle at pred={cycle_info[0]}) ✓" if expect == "LIVELOCK" else
+                      f"\n  => LIVELOCK (local cycle at pred={cycle_info[0]})")
+                return True
+            T_p0 = T_p0_aug
+        if not sd1:
+            print(f"  P_other not self-disabling: {v1}")
+            T_other_aug, local_ll, cycle_info = augment_transitive_closure(T_other, verbose=True)
+            if local_ll:
+                print(f"\n  => LIVELOCK (local cycle at pred={cycle_info[0]}) ✓" if expect == "LIVELOCK" else
+                      f"\n  => LIVELOCK (local cycle at pred={cycle_info[0]})")
+                return True
+            T_other = T_other_aug
+        # Recompute m after augmentation
+        all_T = list(T_p0) + list(T_other)
+        m = max(max(v,w,wp) for v,w,wp in all_T) + 1
+        sym = (frozenset(T_p0) == frozenset(T_other))
+        print(f"  After augmentation: |T_p0|={len(T_p0)}, |T_other|={len(T_other)}, sym={sym}")
 
     has_ll, k0, ko = fixed_point(T_p0, T_other, verbose=True)
 
