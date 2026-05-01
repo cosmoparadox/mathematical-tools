@@ -460,19 +460,21 @@ def _find_simple_cycles_gstar(arcs, max_len=20, max_cycles=5000):
         nodes_set.add(j)
     max_len = min(max_len, len(nodes_set))
     cycles = []
-    for start in sorted(nodes_set):
-        stack = [(start, [start])]
-        while stack:
-            if len(cycles) >= max_cycles:
-                return cycles
-            v, path = stack.pop()
-            if len(path) > max_len:
-                continue
-            for nxt in adj[v]:
-                if nxt == start and len(path) >= 2:
-                    cycles.append(tuple(path))
-                elif nxt > start and nxt not in path:
-                    stack.append((nxt, path + [nxt]))
+    # Search by increasing length to find short cycles first
+    for target_len in range(2, max_len + 1):
+        for start in sorted(nodes_set):
+            stack = [(start, [start])]
+            while stack:
+                if len(cycles) >= max_cycles:
+                    return cycles
+                v, path = stack.pop()
+                if len(path) > target_len:
+                    continue
+                for nxt in adj[v]:
+                    if nxt == start and len(path) == target_len:
+                        cycles.append(tuple(path))
+                    elif nxt > start and nxt not in path and len(path) < target_len:
+                        stack.append((nxt, path + [nxt]))
     return cycles
 
 
