@@ -721,9 +721,7 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
                         if compound_count > 0:
                             print(f"         ({compound_count} compound walks pruned "
                                   f"by bijection proposition)")
-                break
-        if found_livelock:
-            break
+                break  # one closing chain per length suffices
 
     if not found_livelock and verbose:
         total = sum(len(cm) for cm in all_canon_maps.values())
