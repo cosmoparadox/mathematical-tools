@@ -637,8 +637,10 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
         length_cycles = by_length[N]
         canon_map = {}
         for ci, cyc in length_cycles:
-            t_key = tuple(nodes[v][0] for v in cyc)
-            rotations = [t_key[r:] + t_key[:r] for r in range(N)]
+            # Canonicalize by full PG node tuple (not just t-indices)
+            # This preserves cycles with same t-walk but different w-walks
+            node_key = tuple(cyc)
+            rotations = [node_key[r:] + node_key[:r] for r in range(N)]
             canon = min(rotations)
             if canon not in canon_map:
                 canon_map[canon] = (ci, cyc)
@@ -650,8 +652,8 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
         for canon, (ci, cyc) in canon_map.items():
             all_bw = _backward_propagate_cycle(nodes, gstar_arcs, cyc)
             # Compute canonical rotation offset of source
-            src_t_key = tuple(nodes[v][0] for v in cyc)
-            src_rotations = [src_t_key[r:] + src_t_key[:r] for r in range(N)]
+            src_key = tuple(cyc)
+            src_rotations = [src_key[r:] + src_key[:r] for r in range(N)]
             src_canon_rot = src_rotations.index(min(src_rotations))
 
             for bw in all_bw:
@@ -659,8 +661,8 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
                     compound_count += 1
                     continue
 
-                bw_t_key = tuple(nodes[v][0] for v in bw)
-                bw_rotations = [bw_t_key[r:] + bw_t_key[:r] for r in range(N)]
+                bw_key = tuple(bw)
+                bw_rotations = [bw_key[r:] + bw_key[:r] for r in range(N)]
                 bw_canon = min(bw_rotations)
                 bw_canon_rot = bw_rotations.index(bw_canon)
 
