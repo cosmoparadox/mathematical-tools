@@ -327,7 +327,7 @@ Examples:
             T_other, local_ll, _ = lc.augment_transitive_closure(T_other)
             if local_ll:
                 print("LIVELOCK"); return
-        has_ll, k0, _ = lc.fixed_point(T_zero, T_other, verbose=False)
+        has_ll, k0, _, _ = lc.fixed_point(T_zero, T_other, verbose=False)
         if has_ll:
             print("LIVELOCK")
         elif k0:

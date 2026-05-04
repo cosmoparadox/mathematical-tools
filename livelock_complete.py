@@ -572,9 +572,9 @@ def _find_simple_cycles_gstar(arcs, max_len=20, max_cycles=5000):
 
 
 def _backward_propagate_cycle(nodes, gstar_arcs, cycle_nodes):
-    """Find a backward cycle in G* whose t-walk matches the given cycle's w-walk.
+    """Find ALL backward cycles in G* whose t-walk matches the given cycle's w-walk.
 
-    Returns a tuple of G* node indices forming the backward cycle, or None.
+    Returns a list of tuples of G* node indices forming backward cycles, or [].
     """
     N = len(cycle_nodes)
     w_indices = [nodes[v][1] for v in cycle_nodes]
@@ -591,65 +591,229 @@ def _backward_propagate_cycle(nodes, gstar_arcs, cycle_nodes):
             if ti == w_indices[k]:
                 pos_candidates[k].append(v)
 
-    result = [None]
+    results = []
+    max_results = 50  # cap to avoid explosion
 
     def search(k, path):
+        if len(results) >= max_results:
+            return
         if k == N:
             if path[0] in adj.get(path[-1], []):
-                result[0] = tuple(path)
-                return True
-            return False
+                results.append(tuple(path))
+            return
         for v in pos_candidates[k]:
             if k == 0 or v in adj.get(path[-1], []):
                 path.append(v)
-                if search(k + 1, path):
-                    return True
+                search(k + 1, path)
                 path.pop()
-        return False
 
     search(0, [])
-    return result[0]
+    return results
 
 
 def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
     """Backtracking verification on G*.
 
-    For each simple cycle in G*, backward-propagate through G* until:
-      - The chain of walks repeats → LIVELOCK (return True)
-      - Backward propagation fails → try next cycle
+    Builds backward propagation graph between canonical simple cycles.
+    Compound backward walks pruned (bijection proposition).
 
-    If all cycles fail, return False (no livelock from simple cycles).
+    Returns (has_livelock, graph_info).
     """
     cycles = _find_simple_cycles_gstar(gstar_arcs, max_len=min(20, len(Ls) ** 2))
     if verbose:
         print(f"    [T] Backtracking: {len(cycles)} simple cycles in G*")
 
+    by_length = defaultdict(list)
     for ci, cyc in enumerate(cycles):
-        N = len(cyc)
-        visited_walks = set()
-        current = cyc
+        by_length[len(cyc)].append((ci, cyc))
 
-        for depth in range(10000):
-            t_key = tuple(nodes[v][0] for v in current)
+    all_canon_maps = {}       # {N: {canon: (ci, cyc)}}
+    all_forward_edges = {}    # {N: {canon: [(target_canon, shift)]}}
+    all_compound_pruned = {}
+    all_closing_chains = []
+    found_livelock = False
 
-            if t_key in visited_walks:
-                if verbose:
-                    t_walk = [Ls[nodes[v][0]] for v in cyc]
-                    print(f"    [T] Cycle {ci} (N={N}) closes at depth {depth} "
-                          f"→ LIVELOCK")
-                    print(f"         t-walk: {t_walk}")
-                return True
+    for N in sorted(by_length):
+        length_cycles = by_length[N]
+        canon_map = {}
+        for ci, cyc in length_cycles:
+            t_key = tuple(nodes[v][0] for v in cyc)
+            rotations = [t_key[r:] + t_key[:r] for r in range(N)]
+            canon = min(rotations)
+            if canon not in canon_map:
+                canon_map[canon] = (ci, cyc)
 
-            visited_walks.add(t_key)
+        all_canon_maps[N] = canon_map
+        forward_edges = defaultdict(list)  # canon -> [(target_canon, shift)]
+        compound_count = 0
 
-            backward = _backward_propagate_cycle(nodes, gstar_arcs, current)
-            if backward is None:
+        for canon, (ci, cyc) in canon_map.items():
+            all_bw = _backward_propagate_cycle(nodes, gstar_arcs, cyc)
+            # Compute canonical rotation offset of source
+            src_t_key = tuple(nodes[v][0] for v in cyc)
+            src_rotations = [src_t_key[r:] + src_t_key[:r] for r in range(N)]
+            src_canon_rot = src_rotations.index(min(src_rotations))
+
+            for bw in all_bw:
+                if len(set(bw)) < len(bw):
+                    compound_count += 1
+                    continue
+
+                bw_t_key = tuple(nodes[v][0] for v in bw)
+                bw_rotations = [bw_t_key[r:] + bw_t_key[:r] for r in range(N)]
+                bw_canon = min(bw_rotations)
+                bw_canon_rot = bw_rotations.index(bw_canon)
+
+                # Shift: how much the canonical form rotates
+                # Source at canonical rotation src_canon_rot
+                # Target at canonical rotation bw_canon_rot
+                # The backward walk at position k uses w-component of source[k]
+                # so position alignment is inherited. The shift is the
+                # difference in canonical rotations.
+                shift = (bw_canon_rot - src_canon_rot) % N
+
+                # Avoid duplicate edges
+                edge = (bw_canon, shift)
+                if edge not in forward_edges[canon]:
+                    forward_edges[canon].append(edge)
+
+        all_forward_edges[N] = dict(forward_edges)
+        all_compound_pruned[N] = compound_count
+
+        if not forward_edges:
+            continue
+
+        # Search for cycles in the forward graph
+        targets_only = defaultdict(set)
+        for src, edges in forward_edges.items():
+            for tgt, _ in edges:
+                targets_only[src].add(tgt)
+
+        def find_closing_chain(start, bg=targets_only):
+            visited = set()
+            stack = [(start, [start])]
+            while stack:
+                current, path = stack.pop()
+                if current in visited:
+                    if current == start and len(path) > 1:
+                        return path
+                    continue
+                visited.add(current)
+                for nxt in bg.get(current, set()):
+                    if nxt == start and len(path) >= 1:
+                        return path + [nxt]
+                    if nxt not in visited:
+                        stack.append((nxt, path + [nxt]))
+            return None
+
+        for canon in canon_map:
+            chain = find_closing_chain(canon)
+            if chain is not None:
+                all_closing_chains.append((N, chain))
+                if not found_livelock:
+                    found_livelock = True
+                    ci, cyc = canon_map[canon]
+                    if verbose:
+                        t_walk = [Ls[nodes[v][0]] for v in cyc]
+                        print(f"    [T] Cycle {ci} (N={N}) closes at depth "
+                              f"{len(chain)-1} \u2192 LIVELOCK")
+                        print(f"         t-walk: {t_walk}")
+                        if compound_count > 0:
+                            print(f"         ({compound_count} compound walks pruned "
+                                  f"by bijection proposition)")
                 break
-            current = backward
+        if found_livelock:
+            break
 
-    if verbose:
-        print(f"    [T] All {len(cycles)} cycles fail backward propagation")
-    return False
+    if not found_livelock and verbose:
+        total = sum(len(cm) for cm in all_canon_maps.values())
+        print(f"    [T] All {total} canonical cycles fail backward propagation")
+
+    graph_info = {
+        'cycles': cycles,
+        'canon_maps': all_canon_maps,
+        'forward_edges': all_forward_edges,
+        'closing_chains': all_closing_chains,
+        'compound_pruned': all_compound_pruned,
+        'Ls': Ls,
+        'nodes': nodes,
+    }
+    return found_livelock, graph_info
+
+
+def display_backward_graph(graph_info):
+    """Display the forward propagation graph between product graph cycles."""
+    canon_maps = graph_info['canon_maps']
+    forward_edges = graph_info['forward_edges']
+    compound_pruned = graph_info['compound_pruned']
+    Ls = graph_info['Ls']
+    nodes = graph_info['nodes']
+
+    total_canons = sum(len(cm) for cm in canon_maps.values())
+    total_with_fwd = sum(len(fe) for fe in forward_edges.values())
+    total_pruned = sum(compound_pruned.values())
+
+    # First: list all simple cycles that close (have forward targets)
+    print(f"  SIMPLE CYCLES IN PRODUCT GRAPH (canonical):")
+    print()
+
+    for N in sorted(canon_maps):
+        cm = canon_maps[N]
+        fe = forward_edges.get(N, {})
+        if not cm:
+            continue
+
+        closing = [canon for canon in cm if canon in fe]
+        dead = [canon for canon in cm if canon not in fe]
+
+        print(f"  N={N}: {len(cm)} canonical cycles "
+              f"({len(closing)} with forward targets, {len(dead)} dead-ends)")
+
+        for canon, (ci, cyc) in sorted(cm.items(), key=lambda x: x[1][0]):
+            t_walk = [Ls[nodes[v][0]] for v in cyc]
+            status = "closing" if canon in fe else "dead-end"
+            print(f"    c[{ci}] (N={N}): {t_walk}  [{status}]")
+        print()
+
+    if total_pruned > 0:
+        print(f"  Compound walks pruned (bijection prop.): {total_pruned}")
+        print()
+
+    # Then: forward enabling map with shifts
+    has_any_edges = any(fe for fe in forward_edges.values())
+    if not has_any_edges:
+        print(f"  No forward targets found.")
+        return
+
+    print(f"  FORWARD ENABLING MAP:")
+    print()
+
+    for N in sorted(forward_edges):
+        fe = forward_edges[N]
+        cm = canon_maps.get(N, {})
+        if not fe:
+            continue
+
+        for canon in sorted(fe, key=lambda c: cm[c][0] if c in cm else 0):
+            if canon not in cm:
+                continue
+            ci, cyc = cm[canon]
+            edges = fe[canon]
+
+            target_strs = []
+            for tgt_canon, shift in sorted(edges, key=lambda e: e[1]):
+                if tgt_canon == canon:
+                    tgt_label = "self"
+                elif tgt_canon in cm:
+                    tgt_ci, _ = cm[tgt_canon]
+                    tgt_label = f"c[{tgt_ci}]"
+                else:
+                    tgt_label = "(other)"
+                target_strs.append(f"{tgt_label} (shift {shift})")
+
+            print(f"    c[{ci}] (N={N}) -> {', '.join(target_strs)}")
+
+    print()
 
 
 def inner_fp(L_init, T_full, verbose=False, label="T"):
@@ -678,19 +842,18 @@ def fixed_point(T_p0, T_other, verbose=True):
         L, gstar_data = _symmetric_2d_fp(T_p0, verbose=verbose)
         if not L:
             if verbose: print("  => FREE (G* = ∅)")
-            return False, frozenset(), frozenset()
+            return False, frozenset(), frozenset(), None
         # G* non-empty: verify via backtracking
         Ls, nodes, arcs = gstar_data
         if verbose:
             print("  [Symmetric] G* non-empty — backtracking verification")
-        verified = _backtrack_verify(Ls, nodes, arcs, verbose=verbose)
+        verified, graph_info = _backtrack_verify(Ls, nodes, arcs, verbose=verbose)
         if verified:
             if verbose: print(f"  => LIVELOCK: L* = {sorted(L)}")
-            return True, L, L
+            return True, L, L, graph_info
         else:
             if verbose: print("  => INCONCLUSIVE (G* non-empty, no simple cycle closes)")
-            # Return False but with non-empty L to signal INCONCLUSIVE
-            return False, L, L
+            return False, L, L, graph_info
 
     if verbose: print("  [Asymmetric] Joint fixed point (L_0, L_other)")
     # Initial: SCC with edge pruning
@@ -701,7 +864,7 @@ def fixed_point(T_p0, T_other, verbose=True):
     Lo = _scc_on_edges(sorted(Lo), _build_witnessed_edges(sorted(Lo), ow_o))
     if not L0 or not Lo:
         if verbose: print("  => FREE (empty initial PL)")
-        return False, frozenset(), frozenset()
+        return False, frozenset(), frozenset(), None
 
     for outer in range(1, len(T_p0) + len(T_other) + 2):
         if verbose: print(f"  Outer {outer}: |L0|={len(L0)}, |Lo|={len(Lo)}")
@@ -713,7 +876,7 @@ def fixed_point(T_p0, T_other, verbose=True):
         Lo_new = inner_fp(Lo_init, T_other, verbose=verbose, label="Lo")
         if not Lo_new:
             if verbose: print("  => FREE (L_other emptied)")
-            return False, frozenset(), frozenset()
+            return False, frozenset(), frozenset(), None
         # Shadows from Lo edges witnessed by Lo (self)
         ow_Lo_new = {(t[1],t[2]) for t in Lo_new}
         edges_Lo = _build_witnessed_edges(sorted(Lo_new), ow_Lo_new)
@@ -723,7 +886,7 @@ def fixed_point(T_p0, T_other, verbose=True):
                                _build_witnessed_edges(sorted(L0_init), ow_Lo_new))
         if not L0_new:
             if verbose: print("  => FREE (L_0 emptied)")
-            return False, frozenset(), frozenset()
+            return False, frozenset(), frozenset(), None
         if L0_new == L0 and Lo_new == Lo:
             if verbose: print("  => LIVELOCK: joint fixed point")
             return True, L0_new, Lo_new
@@ -985,7 +1148,7 @@ def analyze_2d_cycles(L_star, max_cycle_len=20, max_cycles=300, verbose=True):
     }
 
 
-def trace_witness_chains(L_star, max_depth=10, max_cycles=100,
+def trace_witness_chains(L_star, max_depth=10, max_cycles=5000,
                          max_cycle_len=15, verbose=True):
     """Forward enabling map and circulation law for all simple cycles in L*.
 
@@ -1593,17 +1756,17 @@ def analyze(name, T_p0, T_other=None, expect=None, m=None, trace_cycles=False):
         sym = (frozenset(T_p0) == frozenset(T_other))
         print(f"  After augmentation: |T_p0|={len(T_p0)}, |T_other|={len(T_other)}, sym={sym}")
 
-    has_ll, k0, ko = fixed_point(T_p0, T_other, verbose=True)
+    has_ll, k0, ko, graph_info = fixed_point(T_p0, T_other, verbose=True)
 
     if has_ll:
         print(f"\n  Kernel P0: {sorted(k0)}")
         print(f"  Kernel Po: {sorted(ko)}")
 
-        if trace_cycles and sym:
+        if trace_cycles and sym and graph_info:
             print(f"\n  {'─'*50}")
             print(f"  CYCLE ANALYSIS (product graph)")
             print(f"  {'─'*50}")
-            trace_witness_chains(ko, verbose=True)
+            display_backward_graph(graph_info)
 
     # Determine status: LIVELOCK, FREE, or INCONCLUSIVE
     if has_ll:
