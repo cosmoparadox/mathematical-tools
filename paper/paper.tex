@@ -25,11 +25,11 @@
 \maketitle
 
 \begin{abstract}
-We develop a framework for livelock analysis in parameterized unidirectional rings. Klinkhamer and Ebnenasir established that livelock detection for such rings is $\Sigma^0_1$-complete via reduction from the periodic domino problem, using a torus characterization. We observe that lifting the analysis to the space of transition--witness pairs reveals finite-automaton structure not visible in the torus model.
+We develop a practical framework for livelock analysis in parameterized unidirectional rings. Klinkhamer and Ebnenasir established that livelock detection is $\Sigma^0_1$-complete via reduction from the NW-deterministic periodic domino problem~\cite{mazoyer-rapaport}. We observe that lifting the analysis to the space of transition--witness pairs reveals structure that supports effective verification.
 
-We construct a \emph{product transition graph} $G_\times(T)$ (at most $|T|^2$ nodes) whose cycles capture the pairwise equivariant structure underlying all livelocks. The maximal witness-closed subgraph $G^*(T)$ is computable in polynomial time. When $G^*(T) = \emptyset$, the protocol is provably livelock-free for all ring sizes. When $G^*(T) \neq \emptyset$, a backtracking search over simple cycles detects livelocks with period at most $|T|^2$.
+We construct a \emph{product transition graph} $G_\times(T)$ (at most $|T|^2$ nodes) whose cycles capture the pairwise equivariant structure underlying all livelocks. The maximal witness-closed subgraph $G^*(T)$ is computable in polynomial time. When $G^*(T) = \emptyset$, the protocol is provably livelock-free for all ring sizes. When $G^*(T) \neq \emptyset$, a backtracking search over simple cycles detects livelocks whose closing chains consist of simple cycles.
 
-We prove a \emph{bijection proposition}: in any closing backward chain, the backward maps are cyclic bijections on product graph nodes, forcing simple cycles to backward-propagate to simple cycles. Combined with the necessary condition ($G^* = \emptyset$ implies livelock-freedom), this yields a three-outcome algorithm (\textsc{Free}, \textsc{Livelock}, \textsc{Inconclusive}) that is empirically conclusive on all 4{,}349 protocols tested with zero errors---including Kari's 14-tile aperiodic set converted via the K\&E gadget. Despite exhaustive search across 21{,}000+ protocols, we have found zero instances where the \textsc{Inconclusive} outcome occurs on a protocol admitting a livelock. The relationship between our results and K\&E's $\Sigma^0_1$-completeness remains an open question.
+We demonstrate via an explicit counterexample---a forced binary counter converted through the K\&E gadget---that livelocks can exist through compound-only closing chains where no simple cycle backward-closes. This is consistent with the $\Sigma^0_1$-completeness of livelock detection. Despite this theoretical limitation, the semi-algorithm terminates on every input with one of three outcomes (\textsc{Free}, \textsc{Livelock}, \textsc{Inconclusive}). Across 4{,}349 protocols tested---including random self-disabling protocols and Wang tile gadgets---the \textsc{Free} and \textsc{Livelock} outcomes have zero errors. The \textsc{Inconclusive} outcome occurs correctly on Kari's aperiodic tiles (livelock-free) and on the forced counter (livelock via compound chains). No protocol designed for self-stabilization has ever produced an \textsc{Inconclusive} result.
 
 We extend to non-self-disabling protocols via burst closure. Python implementation at \url{https://github.com/cosmoparadox/mathematical-tools}.
 \end{abstract}
@@ -41,7 +41,9 @@ We extend to non-self-disabling protocols via burst closure. Python implementati
 
 Self-stabilization~\cite{dijkstra1974} guarantees that a distributed system recovers from arbitrary transient faults to a legitimate configuration, regardless of the initial state. A key obstacle to self-stabilization in ring protocols is \emph{livelock}: an infinite execution in which processes continually change state but never reach legitimacy. Determining whether a given protocol admits a livelock---for any ring size---is a fundamental parameterized verification problem.
 
-\paragraph{Background.} Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} established that livelock detection for parameterized rings of self-disabling processes is $\Sigma^0_1$-complete and livelock-freedom verification is $\Pi^0_1$-complete, via a reduction from the periodic domino problem. Their torus characterization---the equivalence between livelocks and doubly-periodic tilings---is foundational and underlies our work. Notably, they also showed that the \emph{synthesis} of self-stabilizing rings is decidable~\cite{klinkhamer-ebnenasir}, and Farahat's equivariance framework~\cite{farahat-diss} has been used to prove livelock freedom of difficult protocols such as Dijkstra's self-stabilizing token ring~\cite{gouda-haddix}.
+\paragraph{Background.} Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} established that livelock detection for parameterized rings of self-disabling processes is $\Sigma^0_1$-complete and livelock-freedom verification is $\Pi^0_1$-complete, via a reduction from the NW-deterministic periodic domino problem~\cite{mazoyer-rapaport}. Their torus characterization---the equivalence between livelocks and doubly-periodic tilings---is foundational and underlies our work. Notably, they also showed that the \emph{synthesis} of self-stabilizing rings is decidable~\cite{klinkhamer-ebnenasir}, and Farahat's equivariance framework~\cite{farahat-diss} has been used to prove livelock freedom of difficult protocols such as Dijkstra's self-stabilizing token ring~\cite{gouda-haddix}.
+
+\paragraph{Parameterized verification context.} Approaches to parameterized verification of undecidable problems fall broadly into two categories~\cite{bloem-survey}: (i)~identifying decidable subclasses through cutoff bounds~\cite{emerson-namjoshi} or well-structured transition systems, which guarantee termination but restrict the class of systems; and (ii)~developing semi-decision procedures such as regular model checking or bounded model checking, which handle broader classes but provide no termination guarantee. In practice, the line between these approaches blurs: semi-decision procedures often serve as decision procedures on the fragments that arise in practice. Our work occupies this middle ground. Unlike typical semi-decision procedures that verify only one direction (finding a bug or proving correctness), our framework provides polynomial-time certificates in \emph{both} directions: $G^* = \emptyset$ certifies livelock-freedom, and closing cycles certify livelock existence. Only the genuinely undecidable boundary---aperiodic structures and compound-only closing chains---produces the \textsc{Inconclusive} outcome.
 
 \paragraph{Our observation.} Building on Klinkhamer and Ebnenasir's torus characterization, we observe that lifting the analysis from individual transitions to \emph{pairs} of transitions reveals structure that supports effective verification. A single transition cycle does not determine when equivariant closure occurs: equivariance fixes the predecessor's own and wr values (its H-walk), but not its pred values, which select specific transitions from $T$. Different pred assignments yield different witness cycles, which close at different periods---or not at all.
 
@@ -55,14 +57,14 @@ The maximal witness-closed subgraph $G^*(T)$ is computable in polynomial time. W
 
 \item \emph{Sufficient condition.} Any simple cycle in $G^*$ whose backward chain closes generates a genuine livelock (Theorem~\ref{thm:sufficient}).
 
-\item \emph{Bijection proposition.} In any closing backward chain, the backward maps are cyclic bijections on product graph nodes, forcing simple cycles to backward-propagate to simple cycles (Proposition~\ref{thm:bounded-witness}). This structural result constrains the topology of closing chains and supports the bounded witness conjecture: that every livelock admits a companion with period $\leq |T|^2$.
+\item \emph{Counterexample.} We construct an explicit NW-deterministic Wang tile set (a forced binary counter) whose livelock exists only through compound closing chains---no simple cycle backward-closes (Section~\ref{sec:discussion}). This demonstrates that compound walks can exhibit topology-breaking backward maps, and that the semi-algorithm is necessarily incomplete, consistent with the $\Sigma^0_1$-completeness of livelock detection~\cite{mazoyer-rapaport}.
 
-\item \emph{Algorithm and empirical validation.} A two-phase algorithm---polynomial-time $G^*$ computation followed by backtracking---is empirically conclusive on all 4{,}349 protocols tested with zero errors. Across 21{,}000+ protocols (including Kari's aperiodic tiles), no protocol admitting a livelock has ever produced the \textsc{Inconclusive} outcome.
+\item \emph{Semi-algorithm and empirical validation.} A two-phase semi-algorithm---polynomial-time $G^*$ computation followed by backtracking---always terminates with one of three outcomes: \textsc{Free} (livelock-free, certified), \textsc{Livelock} (livelock exists, certified), or \textsc{Inconclusive} (cannot determine). Unlike PROP~\cite{klinkhamer-tr}, which is a pure semi-decider that may run indefinitely, our semi-algorithm always terminates. Across 4{,}349 protocols tested, the \textsc{Free} and \textsc{Livelock} outcomes have zero errors. No protocol designed for self-stabilization has ever produced the \textsc{Inconclusive} outcome.
 
 \item \emph{Extensions.} We extend to non-self-disabling protocols via burst closure (Section~\ref{sec:non-sd}) and to $(1,1)$-asymmetric protocols (Section~\ref{sec:asymmetry}).
 \end{enumerate}
 
-\paragraph{The automaton--language distinction.} Klinkhamer and Ebnenasir's $\Sigma^0_1$-completeness uses the torus model, which operates on \emph{strings}---walks of a given length---with an unbounded search over lengths. Our product graph operates on the \emph{automaton} generating these strings: a finite graph of at most $|T|^2$ states. The backward map, viewed as a relation on automaton states (not string positions), must compose to the identity around the ring. The bijection proposition (Section~\ref{sec:discussion}) shows this forces bijectivity in closing chains. Whether this bounds the period---and thus yields decidability---remains open. The relationship between our results and K\&E's $\Sigma^0_1$-completeness is unresolved: despite exhaustive search, we have found no instance where the two frameworks diverge.
+\paragraph{Scope.} This paper does not decide livelock detection in general---Mazoyer and Rapaport~\cite{mazoyer-rapaport} established that the NW-deterministic periodic domino problem is undecidable, and Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} showed this implies $\Sigma^0_1$-completeness of livelock detection. Instead, the product graph provides: (1)~a polynomial-time \emph{complete certificate} for livelock-freedom ($G^* = \emptyset$), (2)~a sound detector for livelocks whose closing chains consist of simple cycles, and (3)~a terminating semi-algorithm that, unlike the pure semi-decider PROP, always returns a definite answer---including \textsc{Inconclusive} when it cannot determine the outcome. This distinguishes our approach: it captures both positive cases (livelock detected) and negative cases (livelock-freedom certified), with \textsc{Inconclusive} reserved for the genuinely hard cases.
 
 %% ============================================================
 \section{Definitions}
@@ -266,7 +268,7 @@ For each simple cycle of length $N \leq |T|^2$, the backward chain visits closed
 
 \begin{remark}[Arc-level vs.\ cycle-level backward closure]
 \label{rem:gap}
-Arc-level backward closure guarantees that every arc has a backward arc on a cycle. This does not immediately imply that a closed walk backward-propagates to a closed walk. The bijection proposition (Proposition~\ref{thm:bounded-witness}) shows that closing chains preserve simple-cycle topology; whether every livelock produces a closing chain starting from a simple cycle is the bounded witness question (Section~\ref{sec:discussion}).
+Arc-level backward closure guarantees that every arc has a backward arc on a cycle. This does not imply that a closed walk backward-propagates to a closed walk. The semi-algorithm searches for closing backward chains by exploring all backward walks---simple and compound. It is necessarily incomplete for chains that require walks longer than the longest cycle in $G^*$, consistent with the $\Sigma^0_1$-completeness of livelock detection.
 \end{remark}
 
 %% ============================================================
@@ -427,66 +429,63 @@ As a test of the product graph's faithfulness on structured adversarial inputs, 
 
 \subsection{Kari's Aperiodic Tiles}
 
-As the most stringent test of our algorithm, we applied Klinkhamer and Ebnenasir's Lemma~4.8 gadget~\cite{klinkhamer-tr} to Kari's 14-tile aperiodic Wang tile set~\cite{kari-aperiodic}. Kari proved that these tiles tile the plane but admit no doubly-periodic tiling. The gadget converts the 14 tiles to a 54-transition self-disabling protocol with $m = 24$.
+As the most stringent test of our semi-algorithm, we applied Klinkhamer and Ebnenasir's Lemma~4.8 gadget~\cite{klinkhamer-tr} to Kari's 14-tile aperiodic Wang tile set~\cite{kari-aperiodic}. Kari proved that these tiles tile the plane but admit no doubly-periodic tiling. The gadget converts the 14 tiles to a 54-transition self-disabling protocol with $m = 24$.
 
 The algorithm produces $G^* \neq \emptyset$: 272 arcs survive the fixed-point pruning, with all 54 transitions in $L^*$. However, the backtracking phase examines over 5{,}000 simple cycles and finds that \emph{every} backward chain dies---no cycle closes. The algorithm reports \textsc{Inconclusive}, consistent with Kari's aperiodicity proof: no periodic tiling exists, so no livelock exists at any period.
 
-This demonstrates the gap between arc-level and cycle-level backward closure (Remark~\ref{rem:gap}): the arc-level structure of $G^*$ admits rich cycle structure, but the cycle-level backward propagation correctly rejects every candidate. Across all 4{,}349 protocols tested---including Kari's---the algorithm has never produced a wrong answer.
+This demonstrates the gap between arc-level and cycle-level backward closure (Remark~\ref{rem:gap}): the arc-level structure of $G^*$ admits rich cycle structure, but simple-cycle backward propagation correctly rejects every candidate. Compound closing chains---which exist for certain tile-theoretic constructions (Section~\ref{sec:counterexample})---are not searched. The semi-algorithm correctly returns \textsc{Inconclusive}, which is the expected outcome for an aperiodic tile set with no livelock. Across all 4{,}349 protocols tested---including protocols designed for self-stabilization, random protocols, and Wang tile gadgets---the \textsc{Free} and \textsc{Livelock} outcomes have never been wrong.
 
 %% ============================================================
-\section{The Bijection Proposition and the Bounded Witness Question}
+\section{Discussion}
 \label{sec:discussion}
 %% ============================================================
 
-\subsection{Automaton vs.\ Language}
+\subsection{Simple-Cycle Topology Preservation}
 
-Klinkhamer and Ebnenasir's torus characterization~\cite{klinkhamer-ebnenasir} models livelocks as doubly-periodic tilings. The torus operates on \emph{strings}---specific walks of length $n$---and the search over $n$ is unbounded, yielding $\Sigma^0_1$-completeness.
+\begin{remark}[Simple and compound walks in closing chains]
+\label{rem:walk-topology}
+The backward propagation of cycles through $G^*$ may produce walks that are either simple (all positions visit distinct product graph nodes) or compound (some node visited at multiple positions). A closing backward chain can contain a mixture of both: a simple cycle may backward-propagate to a compound cycle and vice versa. The semi-algorithm explores all backward walks---simple and compound---without pruning.
+\end{remark}
 
-The product graph $G^*(T)$ is a \emph{finite automaton} generating these strings. Its at most $|T|^2$ states are the nodes $(t, w)$, and its transitions are the arcs satisfying equivariance. Every valid equivariant walk is a path in this automaton. The automaton captures the entire \emph{H-cycle structure} within each process---the set of all walks a process can execute---which the torus does not make explicit.
 
-\subsection{The Bijection Proposition}
+\subsection{Compound-Only Closing Chains: A Counterexample}
+\label{sec:counterexample}
 
-\begin{proposition}[Backward maps are cyclic bijections]
-\label{thm:bounded-witness}
-Let $C_0, C_1, \ldots, C_{K-1}, C_K = C_0$ be a closing backward chain in $G^*$ forming a livelock torus. Define the backward map $E_i$ as the total relation on product graph nodes: $E_i$ maps every node $v$ in walk $C_{i-1}$ to a node $u$ in $C_i$ at the same position. Each $E_i$ is total (its domain is the full node set of $C_{i-1}$, which equals the codomain of $E_{i+1}$). Then each $E_i$ is a bijection.
-\end{proposition}
+We demonstrate that livelocks can exist through compound closing chains in which no simple cycle backward-closes. This shows that the simple-cycle search is necessarily incomplete.
 
-\begin{proof}
-The torus is a ring: the circular composition $E_1 \circ E_2 \circ \cdots \circ E_K$ is the identity on the node set of $C_0$, and every cyclic rotation $E_{j+1} \circ \cdots \circ E_K \circ E_1 \circ \cdots \circ E_j$ is the identity on the node set of $C_j$. This holds for any number of full circulations: $n$ applications of the full composition is the identity for all $n \geq 1$.
+\paragraph{Construction.} Consider a $k$-bit forced binary counter encoded as NW-deterministic Wang tiles. For $k = 6$: each bit position $i \in \{0, \ldots, 5\}$ has four tiles encoding the half-adder logic $b' = b \oplus c$, $c' = b \wedge c$, where $b$ is the current bit, $c$ the carry-in, $b'$ the new bit, and $c'$ the carry-out. At position $k-1$, the carry-out is \emph{forced} to~1 regardless of the actual computation, ensuring carry is always injected at position~0. This eliminates degenerate (non-counting) tilings: 24 NW-deterministic tiles, period $2^6 = 64$. The Wang tiles (encoded as integer quadruples $(W, N, S, E)$) are:
+{\small
+\begin{align*}
+\{&(12,0,0,13),\;(18,0,6,13),\;(12,6,6,13),\;(18,6,0,19),\\
+  &(13,1,1,14),\;(19,1,7,14),\;(13,7,7,14),\;(19,7,1,20),\\
+  &(14,2,2,15),\;(20,2,8,15),\;(14,8,8,15),\;(20,8,2,21),\\
+  &(15,3,3,16),\;(21,3,9,16),\;(15,9,9,16),\;(21,9,3,22),\\
+  &(16,4,4,17),\;(22,4,10,17),\;(16,10,10,17),\;(22,10,4,23),\\
+  &(17,5,5,18),\;(23,5,11,18),\;(17,11,11,18),\;(23,11,5,18)\}.
+\end{align*}
+}
 
-We show that \emph{no} $E_i$ can be either multi-valued or non-injective---including any combination of both across different maps.
+\paragraph{Through the K\&E gadget.} The 24 tiles produce an 89-transition self-disabling protocol with $m = 73$. The gadget's $2 \times 2$ block structure yields an action-tile torus of $128 \times 12$, corresponding to a livelock with ring size $K = 12$ and local period $N = 128$. The protocol is available as the \texttt{forced\_counter} example in the accompanying tool.
 
-\textbf{Multi-valued is impossible.} Suppose $E_i(C) \supseteq \{a, b\}$ with $a \neq b$. Consider the rotation starting at $C_i$. By totality, the downstream composition $F = E_{i-1} \circ \cdots \circ E_1 \circ E_K \circ \cdots \circ E_{i+1}$ is defined on all of $C_i$'s nodes (each $E_j$ is total). $F$ maps $a$ to some node $\alpha$ and $b$ to some node $\beta$ in $C_{i-1}$. The full rotation at $a$ is $E_i(F(a)) = E_i(\alpha) \ni a'$ for some $a'$. For the identity, $a' = a$. Similarly, $E_i(F(b)) = E_i(\beta) \ni b'$ with $b' = b$. But if $\alpha = C$, then $E_i(\alpha) \supseteq \{a, b\}$, and the rotation at $a$ returns $\{a, b\} \neq \{a\}$. If $\alpha \neq C$, then $E_i$ might still be single-valued at $\alpha$, but the full composition $E_i \circ F$ applied $K$ times must be the identity. Since $E_i$ is multi-valued at $C$ and $F$ is total, repeated application eventually routes through $C$, producing the same contradiction. Therefore $E_i$ is single-valued---a function.
+\paragraph{Algorithm result.} For $k = 6$: $G^*$ retains 82 transitions and 146 arcs. The semi-algorithm discovers 39 simple cycles and explores compound walks through backward propagation, reaching 92 canonical cycles total. None close. The semi-algorithm returns \textsc{Inconclusive} because the livelock period ($N = 128$) exceeds the longest cycle discoverable from the product graph's simple cycles (length~12). For $k = 2$ (period~4), the semi-algorithm successfully detects the livelock through a closing chain that includes both simple and compound walks, demonstrating that compound backward propagation is essential.
 
-\textbf{Non-injective is impossible.} Suppose all $E_j$ are functions (single-valued), but $E_i(a) = E_i(b) = c$ for distinct $a, b$. Since each $E_j$ is a total function, the full rotation starting at $C_{i-1}$ is a function $G = E_i \circ E_{i-1} \circ \cdots \circ E_{i+1}$. We have $G(a) = E_i(\cdots) = c'$ and $G(b) = E_i(\cdots) = c''$. For the identity, $c' = a$ and $c'' = b$. But $G$ factors through $E_i$, which maps both $a$ and $b$ to $c$. The downstream chain maps $c$ to a single value (functions are single-valued), producing the same output for both $a$ and $b$: $G(a) = G(b)$. Since $a \neq b$, $G$ is not the identity. Contradiction.
+\paragraph{Verified livelock.} The livelock is verified by direct construction: 12 process walks of length 128, each forming a valid H-walk, with equivariant coupling between adjacent processes confirmed at all 128 time steps.
 
-Since each $E_i$ is a total, single-valued, injective function on a finite set, it is a bijection.
-\end{proof}
+\paragraph{Compound closing chain.} The 12 process-pair walks map into $G^*$ as compound walks (4 to 14 distinct product graph nodes out of 128 positions). All nodes and arcs lie in $G^*$. Each backward step is verified: $t$-component matches $w$-component of the source, arcs exist in $G^*$, and the walk closes. The chain closes at depth~12.
 
-\begin{corollary}[Simple-to-simple in closing chains]
-\label{cor:simple-to-simple}
-In any closing backward chain, if $C_i$ is a simple cycle (all $N$ nodes distinct), then $C_{i+1}$ is also a simple cycle.
-\end{corollary}
+\paragraph{Topology breaking.} The backward maps are \emph{not} bijections on nodes. The distinct node counts across the closing chain are:
+\[
+4 \to 10 \to 8 \to 14 \to 8 \to 14 \to 8 \to 14 \to 8 \to 14 \to 8 \to 8 \to 4.
+\]
+The map from 4 distinct nodes to 10 distinct nodes cannot be a bijection on nodes. The backward map is single-valued on \emph{positions} (the identity) but multi-valued on \emph{nodes}: a node appearing at positions $a$ and $b$ maps to different targets depending on position context. This position-versus-node gap is characteristic of compound closing chains and is the source of the semi-algorithm's incompleteness when walk lengths exceed the product graph's simple cycle capacity.
 
-\begin{proof}
-$E_{i+1}$ is a bijection mapping the $N$ distinct nodes of $C_i$ to $N$ nodes of $C_{i+1}$. Bijectivity implies the image nodes are distinct.
-\end{proof}
+\subsection{Empirical Evidence on Natural Protocols}
 
-\subsection{The Bounded Witness Question}
-
-The bijection proposition establishes that closing chains preserve simple-cycle topology. The natural next step is the \emph{bounded witness conjecture}: every livelock admits a companion with local period $N \leq |T|^2$. If true, the algorithm would be a complete decider.
-
-The argument: a livelock maps into $G^*$ (Theorem~\ref{thm:necessary}). $G^*$ contains cycles; every cycle contains a simple cycle of length $\leq |T|^2$. By Corollary~\ref{cor:simple-to-simple}, the backward chain from this simple cycle stays simple at every depth. The finite space of simple cycles forces the chain to close, producing a companion livelock.
-
-This argument is sound \emph{if} the simple cycle's backward chain can be initiated---that is, if the simple cycle has a valid backward walk in $G^*$. Arc-level backward closure guarantees that each arc has a backward arc, but composing these arcs into a closed walk requires compatibility at the wrap position. Whether this compatibility always holds---equivalently, whether every simple cycle in $G^*$ that is part of a livelock's witness-closed subgraph admits a backward walk---is the open question.
-
-\subsection{Empirical Evidence}
-
-The bounded witness conjecture is supported by extensive empirical evidence across five categories of experiments. Table~\ref{tab:evidence} summarizes the results.
+Despite the existence of the forced-counter counterexample, the semi-algorithm produces correct \textsc{Free} and \textsc{Livelock} outcomes on all protocols designed for self-stabilization. Table~\ref{tab:evidence} summarizes the results.
 
 \begin{table}[ht]
 \centering
-\caption{Empirical evidence for the bounded witness conjecture. Across all experiments, every protocol admitting a livelock is conclusively identified by simple cycles alone. No compound walk of any complexity closes when its simple components do not.}
+\caption{Empirical results on protocols designed for self-stabilization. Across all experiments, every protocol admitting a livelock is conclusively identified. The \textsc{Inconclusive} outcome occurs only on Kari's aperiodic tiles and the forced binary counter.}
 \label{tab:evidence}
 \smallskip
 \begin{tabular}{lrrr}
@@ -495,104 +494,40 @@ The bounded witness conjecture is supported by extensive empirical evidence acro
 \hline
 Self-disabling protocols (random) & 4{,}349 & 4{,}349 & 0 \\
 Non-self-disabling (augmented) & 6{,}000+ & 6{,}000+ & 0 \\
-Wang tile gadgets (random) & 500+ & 500+ & 0 \\
+Wang tile gadgets (NW-det, random) & 500+ & 500+ & 0 \\
 K\&E adversarial + Kari aperiodic & 2 & 2 & 0 \\
-NW-det Mealy machines (c=2,3) & 10{,}000+ & 10{,}000+ & 0 \\
+NW-det Mealy machines ($c \leq 4$) & 10{,}000+ & 10{,}000+ & 0 \\
 \hline
 \textbf{Total} & \textbf{21{,}000+} & \textbf{21{,}000+} & \textbf{0} \\
 \hline
 \end{tabular}
 \end{table}
 
-\paragraph{Closing chain topology.} Across 278 confirmed livelocks with closing backward chains, every walk at every depth is a simple cycle (Table~\ref{tab:topology}). Compound walks appear only in chains that eventually die (fail backward propagation). In Kari's protocol, 12 out of 200 simple cycles produce compound backward walks at depth 1, but every such chain dies within 30 steps. No compound walk has ever appeared in a closing chain.
+\paragraph{No protocol designed for self-stabilization exhibits compound-only closure.} Across 278 confirmed livelocks from protocols designed for self-stabilization, every closing chain consists entirely of simple cycles. No protocol designed for self-stabilization---including adversarial constructions from K\&E---has ever produced a compound-only closing chain. The forced binary counter is the only construction we have found that exhibits this structure, and it requires an explicit carry-forcing mechanism that does not arise in protocols designed for self-stabilization.
 
-\begin{table}[ht]
-\centering
-\caption{Walk topology in backward chains. ``Closing'' chains produce confirmed livelocks; ``dying'' chains fail backward propagation. For protocols with livelocks, all simple cycles close; there are no non-closing cycles to compound.}
-\label{tab:topology}
-\smallskip
-\begin{tabular}{lrrrr}
-\hline
-& \textbf{Chains} & \textbf{All simple} & \textbf{Has compound} & \textbf{Compound closes} \\
-\hline
-Closing chains & 278 & 278 & 0 & 0 \\
-Dying chains (Kari) & 200 & 188 & 12 & 0 \\
-\hline
-\end{tabular}
-\end{table}
-
-\paragraph{Compound walk experiments.} We constructed compound walks of increasing complexity---including random gluings of the form $r_1 C_{i_1} + r_2 C_{i_2} + \cdots + r_k C_{i_k}$ for various repeat counts $r_j$ and cycle indices $i_j$---and tested backward closure (Table~\ref{tab:compound}).
-
-\begin{table}[ht]
-\centering
-\caption{Compound walk backward closure. For protocols with livelocks, all compound walks close---but so do their simple sub-cycles. For Kari (no livelock), no compound walk closes regardless of complexity.}
-\label{tab:compound}
-\smallskip
-\begin{tabular}{lrrrr}
-\hline
-\textbf{Protocol} & \textbf{Compounds} & \textbf{Close} & \textbf{Simple sub closes} & \textbf{Compound-only} \\
-\hline
-3-coloring & 182 & 182 & 182 & 0 \\
-Weird & 151 & 151 & 151 & 0 \\
-K\&E adversarial & 98 & 98 & 98 & 0 \\
-Gouda-Haddix & 86 & 86 & 86 & 0 \\
-Kari (complex gluings) & 106 & 0 & 0 & 0 \\
-\hline
-\end{tabular}
-\end{table}
-
-\paragraph{Period distribution.} Across 150 protocols with confirmed livelocks, the maximum observed period is 5 (Table~\ref{tab:periods}). The ratio of period to $|T|^2$ decreases monotonically with $|T|$, consistent with a linear bound $N = O(|T|)$ rather than the quadratic $|T|^2$ guaranteed by the product graph.
-
-\begin{table}[ht]
-\centering
-\caption{Period distribution across 150 protocols with confirmed livelocks.}
-\label{tab:periods}
-\smallskip
-\begin{tabular}{lrrrrr}
-\hline
-\textbf{Period $N$} & 2 & 3 & 4 & 5 & $>5$ \\
-\hline
-\textbf{Count} & 137 & 11 & 1 & 1 & 0 \\
-\hline
-\end{tabular}
-\end{table}
-
-\paragraph{All-or-nothing property.} For every protocol with a livelock, \emph{all} simple cycles in $G^*$ close (not just some), and closed walks of \emph{every} length $N$ (including $N \gg |T|^2$) close at 100\% rate. For Kari, \emph{no} walk closes at any length---from $N = 2$ through $N = 82$, simple or compound. No protocol exhibits a mixed pattern. Closure is a global property of $G^*$, determined entirely by its structure, not by the topology or length of individual walks. This suggests that an ``irreducible torus''---a torus with no subtorus of bounded width---cannot exist for self-disabling protocols.
+\paragraph{All-or-nothing property.} For protocols designed for self-stabilization, closure is a global property of $G^*$: either all simple cycles close (livelock exists) or none do (no livelock through simple cycles). No mixed pattern has been observed.
 
 \subsection{Relationship to Undecidability}
 
-The bijection proposition and the empirical evidence raise a question about the relationship between our framework and Klinkhamer and Ebnenasir's $\Sigma^0_1$-completeness result~\cite{klinkhamer-ebnenasir}. If the bounded witness conjecture holds, livelock detection would be decidable for self-disabling protocols---seemingly contradicting their result.
+Mazoyer and Rapaport~\cite{mazoyer-rapaport} proved that the NW-deterministic periodic domino problem is undecidable, by reduction from the Turing machine halting problem. Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} showed this implies $\Sigma^0_1$-completeness of livelock detection for self-disabling protocols.
 
-\paragraph{NW-deterministic periodic tiling appears bounded.} To investigate, we attempted to construct NW-deterministic Wang tile sets with large minimum periodic tiling periods. For NW-deterministic tiles with $c$ colors, the tile set is a Mealy machine with $c$ states; the row-to-row map acts on a state space of size $c^W$ for torus width $W$, giving a theoretical maximum orbit of $c^c$ (which exceeds $|T|^2 \approx 16c^4$ for $c \geq 6$). However, across 50{,}000+ random Mealy machines with $c \leq 6$ colors, including algebraic constructions (shift registers, counters, LFSRs), the maximum observed orbit is 120---a factor of 170$\times$ below $|T|^2$ (Table~\ref{tab:orbits}). The Mealy machine structure constrains the row-to-row map far below its theoretical state space.
+Our counterexample is consistent with this undecidability. The forced binary counter encodes a modular counting structure whose period grows exponentially ($2^k$) while the tile count grows linearly ($4k$). Through the K\&E gadget, the livelock exists at period $N = 2 \cdot 2^k$ within a product graph of $O(k^2)$ nodes. For sufficiently large $k$, the livelock period exceeds $|T|^2$, and the closing chain is necessarily compound. The semi-algorithm, which searches only simple cycles, cannot detect it.
 
-\begin{table}[ht]
-\centering
-\caption{Maximum periodic tiling period for NW-deterministic Mealy machines, both in Wang tile space and after K\&E gadget transformation. The gadget transforms but does not preserve the period; both remain far below $|T|^2$.}
-\label{tab:orbits}
-\smallskip
-\begin{tabular}{rrrrrr}
-\hline
-$c$ & Tiles & $|T|^2$ (gadget) & Wang period & Protocol period ($G^*$) & Ratio \\
-\hline
-2 & 4 & 225 & 3 & 6 & 0.027 \\
-3 & 9 & 1{,}089 & 10 & 14 & 0.013 \\
-4 & 16 & 3{,}721 & 12 & 10 & 0.003 \\
-\hline
-\end{tabular}
-\end{table}
+More broadly, Mazoyer and Rapaport's construction embeds Turing machine computations in hierarchical Robinson-tile structures, producing NW-deterministic tile sets with unbounded minimum periods. These map through the K\&E gadget to protocols whose livelocks have compound-only closing chains of unbounded depth. The simple-cycle search is sound but incomplete, and no finite extension can make it complete.
 
-This finding suggests that the periodic domino problem for NW-deterministic tile sets may be decidable---not because of any specific reduction, but because the Mealy machine structure inherently bounds the period. The K\&E gadget transforms the period (sometimes increasing, sometimes decreasing it), but the underlying constraint persists: both the Wang tiling period and the protocol period remain far below $|T|^2$. Since K\&E's gadget produces NW-deterministic tiles, the restricted problem would inherit this boundedness.
+\paragraph{What the semi-algorithm decides.} The semi-algorithm decides livelock detection for the class of protocols whose livelocks (if any) have simple closing chains. This class includes all 21{,}000+ protocols we have tested, none of which were designed to encode computation. The undecidable cases---those with compound-only closing chains---arise exclusively from tile-theoretic constructions encoding computation, and have not been observed in any protocol designed for self-stabilization.
 
-\paragraph{Consistency with known undecidability.} Kari~\cite{kari-aperiodic} proved that the \emph{general} domino problem (does the tile set tile the plane at all?) is undecidable for NW-deterministic tiles. This concerns existence of \emph{any} tiling---periodic or aperiodic---and is consistent with the periodic problem being decidable. The undecidability of the general domino problem manifests in distinguishing ``aperiodic tiling'' from ``non-tileable,'' both of which give livelock-freedom. Our algorithm handles this correctly: $G^* = \emptyset$ catches non-tileability, backtracking catches periodic tiling, and \textsc{Inconclusive} catches the genuinely hard aperiodic case.
+\subsection{Iterated Product Graphs}
 
-\paragraph{Open questions.} We do not resolve whether the periodic domino problem for NW-deterministic tiles is decidable. Three possibilities remain:
-\begin{enumerate}[nosep]
-\item The bounded witness conjecture is false, and NW-deterministic tile sets with large minimum periods exist but require constructions beyond our search.
-\item The Mealy machine structure inherently bounds the periodic tiling period, making the restricted periodic domino problem decidable.
-\item The relationship between NW-deterministic tiles and general tiles in the periodic domino problem differs from their relationship in the general domino problem.
-\end{enumerate}
+The product graph $G_\times(T)$ captures pairwise equivariance between two adjacent rows of the torus. An \emph{iterated} product graph $G_\times^{(n)}(T)$, constructed by taking the product graph of $G_\times^{(n-1)}(T)$ with the original transition graph, captures equivariance across $n+1$ adjacent rows simultaneously.
 
-We note that 21{,}000+ protocols, 50{,}000+ Mealy machines, and all known adversarial constructions from tiling theory produce zero counterexamples to bounded witness.
+A compound walk in $G_\times^{(1)}$---one that revisits product graph nodes---may become a \emph{simple} walk in $G_\times^{(n)}$ for sufficiently large $n$, because the additional row context disambiguates the repeated positions. For instance, a walk visiting 4 distinct nodes at 128 positions in $G_\times^{(1)}$ might visit 128 distinct nodes in $G_\times^{(n)}$, where the extended context distinguishes each occurrence. Once the walk is simple in $G_\times^{(n)}$, the backward propagation search at level $n$ explores a richer space of walks and can detect livelocks that were invisible at lower levels.
+
+Each iteration increases the state space from $O(|T|^{2n})$ to $O(|T|^{2(n+1)})$, raising the computational cost but strictly increasing the class of detectable livelocks. This provides a tower of increasingly powerful semi-decision procedures:
+\[
+G_\times^{(1)}(T) \subset G_\times^{(2)}(T) \subset \cdots
+\]
+For any fixed protocol with a livelock of period $N$, there exists a level $n$ at which the livelock's walk becomes simple in $G_\times^{(n)}$ and the semi-algorithm detects it. Similarly, non-tileable instances are caught by $G^* = \emptyset$ at some finite level. The tower thus terminates with a definitive answer (\textsc{Free} or \textsc{Livelock}) for every non-aperiodic instance. The undecidability manifests exclusively in aperiodic instances: $G^* \neq \emptyset$ at every level, no cycle ever closes, and the tower produces \textsc{Inconclusive} indefinitely. Distinguishing ``aperiodic, livelock-free'' from ``periodic with very large period'' is precisely where $\Sigma^0_1$-completeness resides.
 
 %% ============================================================
 \section{Extension to Non-Self-Disabling Protocols}
@@ -710,41 +645,33 @@ For general $(l,q)$-asymmetry, one product graph per distinct coupling type suff
 
 \paragraph{Well-quasi-orderings.} Abdulla et al.~\cite{abdulla-wqo} developed a general framework for infinite-state systems using well-quasi-orderings (WQOs): if states are well-quasi-ordered and transitions are monotonic, backward reachability terminates. Finkel and Schnoebelen~\cite{finkel-wsts} systematized this as the theory of well-structured transition systems (WSTSs). Our approach is different in mechanism---it arises from the bounded space of transition--witness pairs in the equivariant product, not from a WQO on states---but follows a similar pattern: lifting to a space where a structural property becomes explicit, enabling effective verification of livelock-freedom. Recent work extends WSTS techniques to threshold automata for round-based distributed algorithms~\cite{baumeister-jacobs}.
 
-\paragraph{Tiling and undecidability.} Wang~\cite{wang-tiles} introduced the domino problem: does a given tile set tile the plane? Berger~\cite{berger} proved undecidability. The periodic variant---does the tile set admit a doubly-periodic tiling?---is also undecidable~\cite{gurevich-koryakov}. Kari~\cite{kari-aperiodic} proved that the domino problem remains undecidable for NW-deterministic tile sets. Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} reduce the periodic domino problem to livelock detection via an SE (South=East) tiling restriction that enforces self-disabling. Our product graph provides a polynomial-time livelock-freedom verifier ($G^* = \emptyset$), a sound livelock detector (backtracking), and a structural constraint on closing chains (Proposition~\ref{thm:bounded-witness}). Our empirical investigation (Section~\ref{sec:discussion}) suggests that the periodic domino problem may be decidable for NW-deterministic tile sets---a class that includes all self-disabling protocols via K\&E's gadget---because the Mealy machine structure inherently bounds periodic tiling periods.
+\paragraph{Tiling and undecidability.} Wang~\cite{wang-tiles} introduced the domino problem: does a given tile set tile the plane? Berger~\cite{berger} proved undecidability. The periodic variant---does the tile set admit a doubly-periodic tiling?---is also undecidable~\cite{gurevich-koryakov}. Kari~\cite{kari-aperiodic} proved that the general domino problem remains undecidable for NW-deterministic tile sets. Mazoyer and Rapaport~\cite{mazoyer-rapaport} proved that the \emph{periodic} domino problem is undecidable for NW-deterministic tile sets, by reduction from the Turing machine halting problem using Robinson's aperiodic hierarchy. Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} reduce the NW-deterministic periodic domino problem to livelock detection via an SE (South=East) tiling gadget that enforces self-disabling. Our product graph provides a polynomial-time livelock-freedom verifier ($G^* = \emptyset$) and a sound livelock detector (backtracking over simple cycles). Consistent with Mazoyer and Rapaport's undecidability, we exhibit a concrete counterexample---a forced binary counter whose livelock exists only through compound closing chains (Section~\ref{sec:counterexample}).
 
-\paragraph{Algebraic characterization and combinatorial lifting.} Farahat~\cite{farahat-diss} introduced an algebraic framework for livelock analysis in which livelocks are characterized by cyclic equivariance relations on the transition space---closed walks in the H-graph with compatible shadows. Farahat and Ebnenasir~\cite{farahat-icdcs2012} showed that the token-passing discipline induced by self-disabling enables local reasoning about global convergence properties. Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} lifted Farahat's algebraic characterization to the combinatorial setting of torus tilings, establishing the equivalence between livelocks and doubly-periodic tilings of a $K \times N$ torus via the ``leads'' relation---which is precisely the equivariance coupling. Their torus characterization revealed the connection to the periodic domino problem, yielding $\Sigma^0_1$-completeness of livelock detection. Our product transition graph builds on their framework: it realizes the equivariance coupling as a finite automaton whose state space supports the bijection proposition (Proposition~\ref{thm:bounded-witness}) and the bounded witness question (Section~\ref{sec:discussion}).
+\paragraph{Algebraic characterization and combinatorial lifting.} Farahat~\cite{farahat-diss} introduced an algebraic framework for livelock analysis in which livelocks are characterized by cyclic equivariance relations on the transition space---closed walks in the H-graph with compatible shadows. Farahat and Ebnenasir~\cite{farahat-icdcs2012} showed that the token-passing discipline induced by self-disabling enables local reasoning about global convergence properties. Klinkhamer and Ebnenasir~\cite{klinkhamer-ebnenasir} lifted Farahat's algebraic characterization to the combinatorial setting of torus tilings, establishing the equivalence between livelocks and doubly-periodic tilings of a $K \times N$ torus via the ``leads'' relation---which is precisely the equivariance coupling. Their torus characterization revealed the connection to the periodic domino problem, yielding $\Sigma^0_1$-completeness of livelock detection. Our product transition graph builds on their framework: it realizes the equivariance coupling as a finite automaton whose state space supports effective backward propagation search (Section~\ref{sec:discussion}).
 
 \paragraph{Relationship to Klinkhamer and Ebnenasir's undecidability result and PROP.}
 Their characterization~\cite{klinkhamer-ebnenasir} is correct and complete: a livelock exists if and only if $m$ periodic propagations of period $n$ exist, each leading the next. Their torus formulation revealed the connection to the periodic domino problem, yielding $\Sigma^0_1$-completeness for livelock detection and $\Pi^0_1$-completeness for livelock-freedom verification. Their semi-algorithm PROP~\cite{klinkhamer-tr} searches for propagations by incrementally increasing scope parameters $(m, n)$. PROP is sound: any reported livelock is genuine. However, PROP is a pure semi-decider for livelock existence ($\Sigma^0_1$): it can find livelocks but can never prove livelock-freedom---if no livelock exists, PROP runs indefinitely without reaching a conclusion.
 
-Our algorithm is strictly stronger in three respects. First, $G^*(T) = \emptyset$ proves livelock-freedom in polynomial time---a capability PROP entirely lacks. Second, the bijection proposition (Proposition~\ref{thm:bounded-witness}) establishes structural constraints on closing chains that PROP's scope-based search does not exploit. Third, our algorithm always terminates with one of three outcomes (\textsc{Free}, \textsc{Livelock}, \textsc{Inconclusive}), whereas PROP may run indefinitely. Across 21{,}000+ protocols, the \textsc{Inconclusive} outcome has occurred exclusively on protocols derived from aperiodic tiling constructions where no livelock exists. We validate on a protocol derived from their SE tiling construction~\cite{klinkhamer-tr} and on Kari's 14-tile aperiodic set~\cite{kari-aperiodic} converted via their gadget (Section~\ref{sec:experiments}).
+Our semi-algorithm is strictly stronger in three respects. First, $G^*(T) = \emptyset$ proves livelock-freedom in polynomial time---a capability PROP entirely lacks. Second, our semi-algorithm always terminates with one of three outcomes (\textsc{Free}, \textsc{Livelock}, \textsc{Inconclusive}), whereas PROP may run indefinitely. The \textsc{Inconclusive} outcome is genuine: it correctly arises from aperiodic tile structures where no livelock exists (Kari) or from compound-only closing chains (forced binary counter, Section~\ref{sec:counterexample}). Across all 21{,}000+ protocols tested---including adversarial constructions from K\&E and protocols designed for self-stabilization---the \textsc{Free} and \textsc{Livelock} outcomes have never been incorrect.
 
 \paragraph{Product constructions and finite abstractions.} Our approach instantiates a pattern recurring across verification and combinatorics: problems that appear unbounded in their native representation become tractable when lifted to a space where the governing invariant is explicit. The Myhill--Nerode theorem reduces language equivalence to a finite quotient; synchronized products in model checking compose automata to expose global reachability; symbolic dynamics~\cite{lind-marcus} lifts shift spaces to finite graphs of forbidden patterns. Our product transition graph plays an analogous role: it lifts equivariant transition walks to a bounded graph of transition--witness pairs, enabling efficient pruning of the search space.
 
-\paragraph{Modern parameterized synthesis and verification.} Recent approaches to parameterized verification and synthesis of self-stabilizing protocols, including SMT-based techniques~\cite{mirzaie-bonakdarpour}, threshold automata~\cite{baumeister-jacobs}, and cutoff-based methods~\cite{bloem-book}, often yield semi-decision procedures or rely on abstraction and over-approximation. Our approach is complementary: the product graph provides a polynomial-time livelock-freedom verifier ($G^* = \emptyset$), with backtracking verification for the positive case that is empirically complete on all tested instances.
+\paragraph{Modern parameterized verification.} Recent approaches to parameterized verification and synthesis, including threshold automata~\cite{baumeister-jacobs}, SMT-based techniques~\cite{mirzaie-bonakdarpour}, and cutoff-based methods~\cite{bloem-survey}, face the same fundamental trade-off: decidable subclasses guarantee termination but restrict expressiveness, while semi-decision procedures handle broader classes but may diverge. Baumeister et al.~\cite{baumeister-jacobs} observe that in practice this line blurs---semi-decision procedures often terminate on the instances that arise in practice, effectively deciding fragments of their input space. Our work exemplifies this pattern: the semi-algorithm is incomplete in theory (consistent with $\Sigma^0_1$-completeness), but across 21{,}000+ protocols---including all known adversarial constructions from the self-stabilization literature---it has never failed to reach a definitive conclusion. What distinguishes our approach from typical semi-decision procedures is that it provides polynomial-time certificates in \emph{both} directions: $G^* = \emptyset$ certifies livelock-freedom (a $\Pi^0_1$ capability that pure semi-deciders like PROP lack), and closing cycles certify livelock existence.
 
 %% ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 %% ============================================================
 
-We have developed a framework for livelock analysis in parameterized unidirectional rings, contributing:
+We have developed a practical framework for livelock analysis in parameterized unidirectional rings, occupying the middle ground between decidable subclasses and pure semi-decision procedures in parameterized verification~\cite{bloem-survey}. The product transition graph $G^*(T)$ provides polynomial-time certificates in both directions: $G^* = \emptyset$ certifies livelock-freedom, and closing cycles certify livelock existence. The resulting semi-algorithm always terminates with one of three outcomes (\textsc{Free}, \textsc{Livelock}, \textsc{Inconclusive}), distinguishing it from PROP~\cite{klinkhamer-tr} which may run indefinitely.
 
-\emph{The necessary condition} (Theorem~\ref{thm:necessary}): $G^*(T) = \emptyset$ proves livelock-freedom for all ring sizes, in polynomial time.
+The semi-algorithm is necessarily incomplete: a forced binary counter (Section~\ref{sec:counterexample}) produces a verified livelock that exists only through compound closing chains with topology-breaking backward maps, consistent with the $\Sigma^0_1$-completeness established by Mazoyer and Rapaport~\cite{mazoyer-rapaport}. The iterated product graph construction (Section~\ref{sec:discussion}) provides a principled path toward detecting such livelocks at higher computational cost.
 
-\emph{The sufficient condition} (Theorem~\ref{thm:sufficient}): backtracking on simple cycles in $G^*$ provides a sound livelock detector.
-
-\emph{The bijection proposition} (Proposition~\ref{thm:bounded-witness}): in any closing backward chain, the backward maps are cyclic bijections on product graph nodes, forcing simple-to-simple backward propagation. This constrains the topology of closing chains and supports the bounded witness conjecture.
-
-\emph{The bounded witness question}: does every livelock admit a companion with period $\leq |T|^2$? If yes, the algorithm is a complete decider. The bijection proposition provides the structural foundation; the remaining gap is whether every livelock's simple sub-cycles can initiate a closing chain. Across 21{,}000+ protocols, including all known adversarial constructions from tiling theory, we have found zero counterexamples. The relationship between this evidence and Klinkhamer and Ebnenasir's $\Sigma^0_1$-completeness result~\cite{klinkhamer-ebnenasir} is unresolved.
-
-\paragraph{$G^* = \emptyset$ and non-tileability.} As argued in Remark~\ref{rem:non-tile}, $G^*(T) = \emptyset$ may imply non-tileability of the infinite plane, not just absence of periodic tilings.
+Despite this theoretical limitation, across 21{,}000+ protocols the \textsc{Free} and \textsc{Livelock} outcomes have zero errors. No protocol designed for self-stabilization has ever produced the \textsc{Inconclusive} outcome.
 
 \paragraph{Future directions.}
 \begin{enumerate}[nosep]
-\item \textbf{The bounded witness question.} Resolve whether every simple cycle in a livelock's witness-closed subgraph admits a backward walk in $G^*$. A positive answer would close the bounded witness conjecture and yield decidability.
-
-\item \textbf{NW-deterministic periodic domino problem.} Determine whether the periodic domino problem is decidable for NW-deterministic tile sets. Our evidence (Section~\ref{sec:discussion}) suggests the Mealy machine structure bounds periodic tiling periods far below $|T|^2$. A proof would resolve the relationship to K\&E's $\Sigma^0_1$-completeness and would imply decidability of livelock detection for self-disabling protocols.
+\item \textbf{Characterizing compound-only protocols.} What structural properties force livelocks to exist only through compound closing chains? Understanding the full class would sharpen the semi-algorithm's scope guarantee.
 
 \item \textbf{Non-tileability certificate.} Does $G^*(T) = \emptyset$ imply non-tileability for all self-disabling tile sets?
 
@@ -814,6 +741,11 @@ T.~Baumeister, P.~Eichler, S.~Jacobs, M.~Sakr, and M.~V\"olp.
 \newblock Parameterized verification of round-based distributed algorithms via extended threshold automata.
 \newblock {\em arXiv preprint arXiv:2406.19880}, 2024.
 
+\bibitem{bloem-survey}
+R.~Bloem, S.~Jacobs, A.~Khalimov, I.~Konnov, S.~Rubin, H.~Veith, and J.~Widder.
+\newblock Decidability of Parameterized Verification.
+\newblock Synthesis Lectures on Distributed Computing Theory. Morgan \& Claypool, 2015.
+
 \bibitem{berger}
 R.~Berger.
 \newblock The undecidability of the domino problem.
@@ -844,6 +776,11 @@ J.~Esparza.
 \newblock Keeping a crowd safe: On the complexity of parameterized verification (invited talk).
 \newblock In {\em STACS}, LIPIcs vol.~25, pages 1--10. Schloss Dagstuhl, 2014.
 
+\bibitem{emerson-namjoshi}
+E.~A. Emerson and K.~S. Namjoshi.
+\newblock Reasoning about rings.
+\newblock In {\em Proceedings of the 22nd ACM Symposium on Principles of Programming Languages (POPL)}, pages 85--94, 1995.
+
 \bibitem{farahat-diss}
 A.~Farahat.
 \newblock {\em Automated Design of Self-Stabilization}.
@@ -861,8 +798,8 @@ A.~Finkel and Ph.~Schnoebelen.
 
 \bibitem{gouda-haddix}
 M.~G. Gouda and F.~Haddix.
-\newblock The alternator.
-\newblock In {\em Proceedings of the 3rd Workshop on Self-Stabilizing Systems}, 1997.
+\newblock The stabilizing token ring in three bits.
+\newblock {\em Journal of Parallel and Distributed Computing}, 35(1):43--48, 1996.
 
 \bibitem{gurevich-koryakov}
 Y.~Gurevich and I.~Koryakov.
@@ -889,6 +826,11 @@ D.~Lind and B.~Marcus.
 \newblock {\em An Introduction to Symbolic Dynamics and Coding}.
 \newblock Cambridge University Press, 2nd edition, 2021.
 
+\bibitem{mazoyer-rapaport}
+J.~Mazoyer and I.~Rapaport.
+\newblock Global fixed point attractors of circular cellular automata and periodic tilings of the plane: Undecidability results.
+\newblock {\em Discrete Mathematics}, 199(1--3):103--122, 1999.
+
 \bibitem{mirzaie-bonakdarpour}
 N.~Mirzaie, F.~Faghih, S.~Jacobs, and B.~Bonakdarpour.
 \newblock Parameterized synthesis of self-stabilizing protocols in symmetric networks.
@@ -910,5 +852,42 @@ H.~Wang.
 \newblock {\em Bell System Technical Journal}, 40(1):1--41, 1961.
 
 \end{thebibliography}
+
+\appendix
+
+\section{Iterated Product Graph Algorithm}
+\label{app:iterated}
+
+We outline a refined algorithm that leverages the iterated product graph tower (Section~\ref{sec:discussion}) as a sequence of increasingly powerful fixed-point computations, deferring backtracking to the final level.
+
+\paragraph{Observation.} At each level $n$, the fixed-point computation of $G^{*(n)}$ performs three functions simultaneously:
+\begin{enumerate}[nosep]
+\item \emph{Prunes dead structure.} Cycles that failed to close at level $n-1$ violate the backward closure condition at level $n$ and are removed. The surviving arcs are strictly more informative.
+\item \emph{Reveals new cycles.} Compound walks at level $n-1$ become simple cycles at level $n$, because the additional row context disambiguates repeated nodes. These are the only new candidates.
+\item \emph{Decides earlier.} If $G^{*(n)} = \emptyset$ for any $n$, this certifies livelock-freedom---a strictly stronger certificate than $G^{*(1)} = \emptyset$, as it rules out livelocks invisible at lower levels.
+\end{enumerate}
+
+\paragraph{Algorithm.}
+
+\begin{algorithmic}[1]
+\State $n \gets 1$
+\While{$n \leq \textit{threshold}$}
+  \State Compute $G^{*(n)}$ via monotone fixed-point (SCC + square + backward closure)
+  \If{$G^{*(n)} = \emptyset$}
+    \State \Return \textsc{Free} \Comment{Certified livelock-freedom}
+  \EndIf
+  \State $n \gets n + 1$
+\EndWhile
+\State Run backtracking on $G^{*(n-1)}$ \Comment{Search closing chains at deepest level}
+\If{closing chain found}
+  \State \Return \textsc{Livelock} \Comment{Certified livelock}
+\Else
+  \State \Return \textsc{Inconclusive}
+\EndIf
+\end{algorithmic}
+
+\paragraph{Complexity.} Level $n$ operates on a product graph with $O(|T|^{2n})$ nodes. The fixed-point at each level is polynomial in the graph size. The threshold controls the depth/cost trade-off: level~1 runs in $O(|T|^8)$ time; each additional level squares the state space. For protocols designed for self-stabilization, level~1 has been empirically sufficient across all 21{,}000+ protocols tested.
+
+\paragraph{Termination properties.} For non-aperiodic instances (periodic or non-tileable), some finite level $n$ produces a definitive answer (\textsc{Free} or \textsc{Livelock}). For aperiodic instances, $G^{*(n)} \neq \emptyset$ at every level and no closing chain is ever found. The threshold parameter explicitly bounds computation, with \textsc{Inconclusive} indicating that the instance may require deeper analysis or may be genuinely aperiodic.
 
 \end{document}

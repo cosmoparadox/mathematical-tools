@@ -614,8 +614,8 @@ def _backward_propagate_cycle(nodes, gstar_arcs, cycle_nodes):
 def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
     """Backtracking verification on G*.
 
-    Builds backward propagation graph between canonical simple cycles.
-    Compound backward walks pruned (bijection proposition).
+    Builds backward propagation graph between cycles (simple and compound).
+    All backward walks are followed — no pruning.
 
     Returns (has_livelock, graph_info).
     """
@@ -627,9 +627,8 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
     for ci, cyc in enumerate(cycles):
         by_length[len(cyc)].append((ci, cyc))
 
-    all_canon_maps = {}       # {N: {canon: (ci, cyc)}}
-    all_forward_edges = {}    # {N: {canon: [(target_canon, shift)]}}
-    all_compound_pruned = {}
+    all_canon_maps = {}
+    all_forward_edges = {}
     all_closing_chains = []
     found_livelock = False
 
@@ -637,50 +636,59 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
         length_cycles = by_length[N]
         canon_map = {}
         for ci, cyc in length_cycles:
-            # Canonicalize by full PG node tuple (not just t-indices)
-            # This preserves cycles with same t-walk but different w-walks
             node_key = tuple(cyc)
             rotations = [node_key[r:] + node_key[:r] for r in range(N)]
             canon = min(rotations)
             if canon not in canon_map:
                 canon_map[canon] = (ci, cyc)
 
-        all_canon_maps[N] = canon_map
-        forward_edges = defaultdict(list)  # canon -> [(target_canon, shift)]
-        compound_count = 0
+        # Also discover compound cycles via backward propagation
+        # and add them to the canon_map
+        new_canons = dict(canon_map)
+        frontier = list(canon_map.values())
+        next_ci = len(cycles)
 
-        for canon, (ci, cyc) in canon_map.items():
+        for iteration in range(200):
+            next_frontier = []
+            for ci, cyc in frontier:
+                all_bw = _backward_propagate_cycle(nodes, gstar_arcs, cyc)
+                for bw in all_bw:
+                    bw_key = tuple(bw)
+                    bw_rotations = [bw_key[r:] + bw_key[:r] for r in range(N)]
+                    bw_canon = min(bw_rotations)
+
+                    if bw_canon not in new_canons:
+                        new_canons[bw_canon] = (next_ci, bw)
+                        next_frontier.append((next_ci, bw))
+                        next_ci += 1
+            
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        all_canon_maps[N] = new_canons
+
+        # Build forward edges with shifts
+        forward_edges = defaultdict(list)
+        for canon, (ci, cyc) in new_canons.items():
             all_bw = _backward_propagate_cycle(nodes, gstar_arcs, cyc)
-            # Compute canonical rotation offset of source
             src_key = tuple(cyc)
             src_rotations = [src_key[r:] + src_key[:r] for r in range(N)]
             src_canon_rot = src_rotations.index(min(src_rotations))
 
             for bw in all_bw:
-                if len(set(bw)) < len(bw):
-                    compound_count += 1
-                    continue
-
                 bw_key = tuple(bw)
                 bw_rotations = [bw_key[r:] + bw_key[:r] for r in range(N)]
                 bw_canon = min(bw_rotations)
                 bw_canon_rot = bw_rotations.index(bw_canon)
 
-                # Shift: how much the canonical form rotates
-                # Source at canonical rotation src_canon_rot
-                # Target at canonical rotation bw_canon_rot
-                # The backward walk at position k uses w-component of source[k]
-                # so position alignment is inherited. The shift is the
-                # difference in canonical rotations.
-                shift = (bw_canon_rot - src_canon_rot) % N
-
-                # Avoid duplicate edges
-                edge = (bw_canon, shift)
-                if edge not in forward_edges[canon]:
-                    forward_edges[canon].append(edge)
+                if bw_canon in new_canons:
+                    shift = (bw_canon_rot - src_canon_rot) % N
+                    edge = (bw_canon, shift)
+                    if edge not in forward_edges[canon]:
+                        forward_edges[canon].append(edge)
 
         all_forward_edges[N] = dict(forward_edges)
-        all_compound_pruned[N] = compound_count
 
         if not forward_edges:
             continue
@@ -708,21 +716,20 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
                         stack.append((nxt, path + [nxt]))
             return None
 
-        for canon in canon_map:
+        for canon in new_canons:
             chain = find_closing_chain(canon)
             if chain is not None:
                 all_closing_chains.append((N, chain))
                 if not found_livelock:
                     found_livelock = True
-                    ci, cyc = canon_map[canon]
+                    ci, cyc = new_canons[canon]
                     if verbose:
                         t_walk = [Ls[nodes[v][0]] for v in cyc]
-                        print(f"    [T] Cycle {ci} (N={N}) closes at depth "
+                        n_distinct = len(set(cyc))
+                        simple_str = "simple" if n_distinct == N else f"compound ({n_distinct}/{N} distinct)"
+                        print(f"    [T] Cycle {ci} (N={N}, {simple_str}) closes at depth "
                               f"{len(chain)-1} \u2192 LIVELOCK")
                         print(f"         t-walk: {t_walk}")
-                        if compound_count > 0:
-                            print(f"         ({compound_count} compound walks pruned "
-                                  f"by bijection proposition)")
                 break  # one closing chain per length suffices
 
     if not found_livelock and verbose:
@@ -734,7 +741,6 @@ def _backtrack_verify(Ls, nodes, gstar_arcs, verbose=False):
         'canon_maps': all_canon_maps,
         'forward_edges': all_forward_edges,
         'closing_chains': all_closing_chains,
-        'compound_pruned': all_compound_pruned,
         'Ls': Ls,
         'nodes': nodes,
     }
@@ -745,16 +751,14 @@ def display_backward_graph(graph_info):
     """Display the forward propagation graph between product graph cycles."""
     canon_maps = graph_info['canon_maps']
     forward_edges = graph_info['forward_edges']
-    compound_pruned = graph_info['compound_pruned']
     Ls = graph_info['Ls']
     nodes = graph_info['nodes']
 
     total_canons = sum(len(cm) for cm in canon_maps.values())
     total_with_fwd = sum(len(fe) for fe in forward_edges.values())
-    total_pruned = sum(compound_pruned.values())
 
-    # First: list all simple cycles that close (have forward targets)
-    print(f"  SIMPLE CYCLES IN PRODUCT GRAPH (canonical):")
+    # First: list all cycles (simple and compound)
+    print(f"  CYCLES IN PRODUCT GRAPH (canonical):")
     print()
 
     for N in sorted(canon_maps):
@@ -771,12 +775,10 @@ def display_backward_graph(graph_info):
 
         for canon, (ci, cyc) in sorted(cm.items(), key=lambda x: x[1][0]):
             t_walk = [Ls[nodes[v][0]] for v in cyc]
+            n_distinct = len(set(cyc))
             status = "closing" if canon in fe else "dead-end"
-            print(f"    c[{ci}] (N={N}): {t_walk}  [{status}]")
-        print()
-
-    if total_pruned > 0:
-        print(f"  Compound walks pruned (bijection prop.): {total_pruned}")
+            simple_str = "simple" if n_distinct == N else f"compound {n_distinct}/{N}"
+            print(f"    c[{ci}] (N={N}, {simple_str}): {t_walk}  [{status}]")
         print()
 
     # Then: forward enabling map with shifts
