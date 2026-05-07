@@ -754,37 +754,68 @@ def display_backward_graph(graph_info):
     Ls = graph_info['Ls']
     nodes = graph_info['nodes']
 
-    total_canons = sum(len(cm) for cm in canon_maps.values())
-    total_with_fwd = sum(len(fe) for fe in forward_edges.values())
-
-    # First: list all cycles (simple and compound)
-    print(f"  CYCLES IN PRODUCT GRAPH (canonical):")
+    print(f"  CLOSING CYCLES IN PRODUCT GRAPH:")
     print()
 
     for N in sorted(canon_maps):
         cm = canon_maps[N]
         fe = forward_edges.get(N, {})
-        if not cm:
+        if not fe:
             continue
 
-        closing = [canon for canon in cm if canon in fe]
-        dead = [canon for canon in cm if canon not in fe]
+        # Build adjacency for forward graph, compute SCCs
+        # Only keep cycles in non-trivial SCCs (part of a closing chain)
+        all_canons = list(cm.keys())
+        canon_idx = {c: i for i, c in enumerate(all_canons)}
+        fwd_adj = defaultdict(list)
+        for src in fe:
+            if src not in canon_idx:
+                continue
+            for tgt, _ in fe[src]:
+                if tgt in canon_idx:
+                    fwd_adj[canon_idx[src]].append(canon_idx[tgt])
 
-        print(f"  N={N}: {len(cm)} canonical cycles "
-              f"({len(closing)} with forward targets, {len(dead)} dead-ends)")
+        on_cycle = _kosaraju(len(all_canons), fwd_adj)
+        closing = {all_canons[i] for i in on_cycle}
 
-        for canon, (ci, cyc) in sorted(cm.items(), key=lambda x: x[1][0]):
+        if not closing:
+            continue
+
+        n_simple = sum(1 for c in closing if len(set(cm[c][1])) == N)
+        n_compound = len(closing) - n_simple
+
+        print(f"  N={N}: {len(closing)} closing cycles "
+              f"({n_simple} simple, {n_compound} compound)")
+
+        for canon in sorted(closing, key=lambda c: cm[c][0]):
+            ci, cyc = cm[canon]
             t_walk = [Ls[nodes[v][0]] for v in cyc]
             n_distinct = len(set(cyc))
-            status = "closing" if canon in fe else "dead-end"
             simple_str = "simple" if n_distinct == N else f"compound {n_distinct}/{N}"
-            print(f"    c[{ci}] (N={N}, {simple_str}): {t_walk}  [{status}]")
+            print(f"    c[{ci}] (N={N}, {simple_str}): {t_walk}")
         print()
 
-    # Then: forward enabling map with shifts
-    has_any_edges = any(fe for fe in forward_edges.values())
-    if not has_any_edges:
-        print(f"  No forward targets found.")
+    # Forward enabling map (only closing → closing edges)
+    has_any = False
+    for N in forward_edges:
+        cm = canon_maps.get(N, {})
+        fe = forward_edges[N]
+        all_canons = list(cm.keys())
+        canon_idx = {c: i for i, c in enumerate(all_canons)}
+        fwd_adj = defaultdict(list)
+        for src in fe:
+            if src not in canon_idx:
+                continue
+            for tgt, _ in fe[src]:
+                if tgt in canon_idx:
+                    fwd_adj[canon_idx[src]].append(canon_idx[tgt])
+        on_cycle = _kosaraju(len(all_canons), fwd_adj)
+        closing = {all_canons[i] for i in on_cycle}
+        if closing:
+            has_any = True
+
+    if not has_any:
+        print(f"  No closing chains found.")
         return
 
     print(f"  FORWARD ENABLING MAP:")
@@ -796,24 +827,33 @@ def display_backward_graph(graph_info):
         if not fe:
             continue
 
-        for canon in sorted(fe, key=lambda c: cm[c][0] if c in cm else 0):
-            if canon not in cm:
+        all_canons = list(cm.keys())
+        canon_idx = {c: i for i, c in enumerate(all_canons)}
+        fwd_adj = defaultdict(list)
+        for src in fe:
+            if src not in canon_idx:
                 continue
-            ci, cyc = cm[canon]
-            edges = fe[canon]
+            for tgt, _ in fe[src]:
+                if tgt in canon_idx:
+                    fwd_adj[canon_idx[src]].append(canon_idx[tgt])
+        on_cycle = _kosaraju(len(all_canons), fwd_adj)
+        closing = {all_canons[i] for i in on_cycle}
 
+        for canon in sorted(closing, key=lambda c: cm[c][0]):
+            ci, _ = cm[canon]
+            edges = fe.get(canon, [])
             target_strs = []
             for tgt_canon, shift in sorted(edges, key=lambda e: e[1]):
+                if tgt_canon not in closing:
+                    continue
                 if tgt_canon == canon:
                     tgt_label = "self"
-                elif tgt_canon in cm:
+                else:
                     tgt_ci, _ = cm[tgt_canon]
                     tgt_label = f"c[{tgt_ci}]"
-                else:
-                    tgt_label = "(other)"
                 target_strs.append(f"{tgt_label} (shift {shift})")
-
-            print(f"    c[{ci}] (N={N}) -> {', '.join(target_strs)}")
+            if target_strs:
+                print(f"    c[{ci}] (N={N}) -> {', '.join(target_strs)}")
 
     print()
 
@@ -891,7 +931,7 @@ def fixed_point(T_p0, T_other, verbose=True):
             return False, frozenset(), frozenset(), None
         if L0_new == L0 and Lo_new == Lo:
             if verbose: print("  => LIVELOCK: joint fixed point")
-            return True, L0_new, Lo_new
+            return True, L0_new, Lo_new, None
         L0, Lo = L0_new, Lo_new
 
 

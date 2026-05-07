@@ -169,6 +169,31 @@ EXAMPLES = {
         "T": [(3,1,0),(3,2,0),(3,3,0),(0,0,1),(1,0,1),(1,1,2),(0,1,2),(0,2,3),(0,3,1),(1,3,1)],
         "description": "Simplified MESI on ring bus. Non-SD. Local cycle under pred=Invalid.",
     },
+    "forced_counter_k2": {
+        "name": "Forced 2-bit Binary Counter (m=25, LIVELOCK via compound chain)",
+        "T": [(0,17,9),(0,18,11),(0,19,11),(0,20,9),(0,21,10),(0,22,12),(0,23,12),
+              (0,24,10),(5,9,17),(5,11,19),(6,10,21),(6,12,23),(7,9,18),(7,11,20),
+              (8,10,22),(8,12,24),(9,6,0),(9,8,0),(10,7,0),(11,6,0),(12,7,0),
+              (17,0,6),(18,0,6),(19,0,6),(20,0,8),(21,0,7),(22,0,7),(23,0,7),(24,0,7)],
+        "description": "K&E gadget of 2-bit forced binary counter (8 NW-det Wang tiles). "
+                       "Livelock (K=4, N=8) detected through compound closing chain "
+                       "(simple→compound→simple). Smallest forced counter caught by level-1 "
+                       "product graph.",
+    },
+    "forced_counter_k3": {
+        "name": "Forced 3-bit Binary Counter (m=37, INCONCLUSIVE)",
+        "T": [(0,25,13),(0,26,16),(0,27,16),(0,28,13),(0,29,14),(0,30,17),(0,31,17),
+              (0,32,14),(0,33,15),(0,34,18),(0,35,18),(0,36,15),(7,13,25),(7,16,27),
+              (8,14,29),(8,17,31),(9,15,33),(9,18,35),(10,13,26),(10,16,28),
+              (11,14,30),(11,17,32),(12,15,34),(12,18,36),(13,8,0),(13,11,0),
+              (14,9,0),(14,12,0),(15,10,0),(16,8,0),(17,9,0),(18,10,0),
+              (25,0,8),(26,0,8),(27,0,8),(28,0,11),(29,0,9),(30,0,9),(31,0,9),
+              (32,0,12),(33,0,10),(34,0,10),(35,0,10),(36,0,10)],
+        "description": "K&E gadget of 3-bit forced binary counter (12 NW-det Wang tiles). "
+                       "Verified livelock (K=6, N=16) exists but period 16 exceeds max "
+                       "simple cycle length 12. Smallest forced counter requiring iterated "
+                       "product graph (level 2+).",
+    },
     "forced_counter": {
         "name": "Forced 6-bit Binary Counter (m=73, INCONCLUSIVE)",
         "T": [(0,49,25),(0,50,31),(0,51,31),(0,52,25),(0,53,26),(0,54,32),(0,55,32),
