@@ -327,7 +327,7 @@ def run_suite(suite_name, count, max_K, verbose=False):
             m = max(max(t) for t in T) + 1
             
             # Run algorithm
-            has_ll_algo, k0, ko = lc.fixed_point(T, T, verbose=False)
+            has_ll_algo, k0, ko, _ = lc.fixed_point(T, T, verbose=False)
             
             # Run exhaustive search
             has_ll_exact, K_witness = exhaustive_livelock_search(T, max_K=max_K)
@@ -416,7 +416,7 @@ def run_known_protocols():
     passed = 0
     failed = 0
     for name, T, expect in cases:
-        has_ll, k0, ko = lc.fixed_point(T, T, verbose=False)
+        has_ll, k0, ko, _ = lc.fixed_point(T, T, verbose=False)
         result = "LIVELOCK" if has_ll else "NO LIVELOCK"
         ok = result == expect
         status = "✓" if ok else "✗"
