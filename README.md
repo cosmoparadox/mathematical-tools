@@ -17,11 +17,12 @@ unidirectional ring protocols, based on the **product transition graph**.
 8. [Stress Testing (`test_harness.py`)](#stress-testing)
 9. [Wang Tile Gadget (K&E Reduction)](#wang-tile-gadget)
 10. [Test Results](#test-results)
-11. [Theoretical Foundation](#theoretical-foundation)
-12. [Limitations and the Decidability Boundary](#limitations-and-the-decidability-boundary)
-13. [Files](#files)
-14. [References](#references)
-15. [License](#license)
+11. [Reproducing the Paper's Results](#reproducing-the-papers-results)
+12. [Theoretical Foundation](#theoretical-foundation)
+13. [Limitations and the Decidability Boundary](#limitations-and-the-decidability-boundary)
+14. [Files](#files)
+15. [References](#references)
+16. [License](#license)
 
 ---
 
@@ -60,13 +61,18 @@ python3 run_protocol.py --example coloring3
 python3 run_protocol.py "[(0,0,1),(1,1,2),(2,2,0)]"
 
 # Quick result only
-python3 run_protocol.py "[(0,0,1),(1,1,2),(2,2,0)]" -q
+python3 run_protocol.py "[(0,0,1),(1,1,2),(2,2,0)]" --quiet
 
 # From a file
 python3 run_protocol.py --file my_protocol.txt
 
-# Run the built-in test suite (25 protocols + Kari aperiodic tiles)
+# Run the built-in test suite — 26 checks, starting with Dijkstra's token
+# ring (m=3,4,5, asymmetric) and ending with Kari's aperiodic tiles.
+# Every check prints ✓ on success. Takes about 10 seconds.
 python3 livelock_complete.py
+
+# Same, with detailed cycle traces
+python3 livelock_complete.py --cycles
 
 # Run randomized stress tests
 python3 test_harness.py --count 500 --verbose
@@ -117,7 +123,8 @@ pairs (t, w) of transitions satisfying `wr(w) = pred(t)`, and whose arcs encode
 the four equivariance conditions between consecutive transition-witness pairs.
 This graph has at most |T|² nodes and |T|⁴ arcs.
 
-The algorithm then computes **G\*(T)**, the maximal **witness-closed** subgraph,
+The algorithm then computes **G\*(T)**, the maximal **backward-closed** subgraph
+(called *witness-closed* in the code),
 by iteratively pruning arcs that violate:
 
 1. **Cyclicity (SCC)**: every arc must lie on a cycle
@@ -154,8 +161,10 @@ Verify the installation:
 python3 livelock_complete.py
 ```
 
-This runs the built-in test suite (25 protocols including Kari's aperiodic tiles).
-All tests should show ✓.
+This runs the built-in test suite: 26 checks covering Dijkstra's token ring
+(m=3,4,5, asymmetric), the coloring and Sum-Not-2 families, regression seeds,
+the K&E adversarial SE-tiling protocol, and Kari's aperiodic tiles. All checks
+should show ✓. Expected runtime: about 10 seconds.
 
 ---
 
@@ -178,37 +187,44 @@ ARGUMENTS
                         tuples. Supports list comprehensions.
 
 OPTIONS
-    --file FILE, -f FILE
-                        Read transitions from a text file (one "pred own wr"
+    --file PATH         Read transitions from a text file (one "pred own wr"
                         per line, # for comments).
 
-    --example NAME, -e NAME
-                        Use a built-in example protocol.
+    --example NAME      Use a built-in example protocol.
 
     --list-examples     List all built-in example protocols and exit.
 
-    --name NAME, -n NAME
-                        Display name for the protocol.
+    --name NAME         Display name for the protocol.
 
     --p0 EXPRESSION     Distinguished process P0 transitions for (1,1)-asymmetric
                         protocols. The main EXPRESSION gives the "other" transitions.
 
-    --cycles, -c        Show detailed cycle analysis in the product graph.
+    --cycles            Show detailed cycle analysis in the product graph.
 
-    --quiet, -q         Minimal output: just LIVELOCK, NO LIVELOCK, or INCONCLUSIVE.
+    --quiet             Minimal output: just LIVELOCK, NO LIVELOCK, or INCONCLUSIVE.
 
-BUILT-IN EXAMPLES
-    coloring3           3-Coloring (m=3). Classic self-stabilizing coloring.
+    Note: all options are long-form only; there are no single-letter aliases.
+
+BUILT-IN EXAMPLES (see --list-examples for descriptions)
+    coloring3           3-Coloring (m=3). Classic self-stabilizing coloring. Livelock.
     coloring4           4-Coloring (m=4).
+    nondet_coloring     Non-deterministic coloring (m=3).
+    shifted_coloring    Shifted coloring (m=3). Self-witnessing, shift 0.
     sum_not_2           Sum-Not-2 (m=3). Livelock-free.
     sum_not_2_nondet    Non-deterministic Sum-Not-2 (m=3). Has livelock.
-    shifted_coloring    Shifted coloring (m=3). Self-witnessing, shift 0.
-    gouda_haddix        Gouda-Haddix token-based (m=8). 32 transitions, 14 survive.
+    maximal_agreement   Maximal agreement (m=3). Every process copies predecessor.
+    gouda_haddix        Gouda-Haddix TB (m=8). 32 transitions, 14 survive.
+    barrier_clock       Barrier phase clock (m=5). Livelock.
+    burns_me            Burns mutual exclusion (m=3). Non-self-disabling.
+    cache_coherence     Write-invalidate cache coherence (m=4). Non-self-disabling.
     trial56             Trial 56 (m=8). Livelock-free. Stress-tests shadow pruning.
     weird               Weird protocol (m=16). Compound witness chains.
     ke_adversarial      K&E adversarial SE tiling (m=15). All 17 transitions survive.
-    maximal_agreement   Maximal agreement (m=3). Every process copies predecessor.
-    nondet_coloring     Non-deterministic coloring (m=3).
+    forced_counter_k2   Forced 2-bit binary counter (m=25). LIVELOCK via compound chain.
+    forced_counter_k3   Forced 3-bit binary counter (m=37). INCONCLUSIVE.
+    forced_counter      Forced 6-bit binary counter (m=73). INCONCLUSIVE — the
+                        paper's Section VIII counterexample: a real livelock
+                        (K=12, N=128) invisible to simple-cycle search.
 
 OUTPUT
     LIVELOCK            Protocol admits livelock. L* shows surviving transitions.
@@ -228,16 +244,23 @@ python3 run_protocol.py "[(v,v,(v+1)%3) for v in range(3)]" --cycles
 # Analyze from file
 python3 run_protocol.py --file protocols/dijkstra.txt
 
-# (1,1)-asymmetric: Dijkstra's token ring (m=3)
-python3 run_protocol.py "[(v,(v+1)%3,(v+1)%3) for v in range(3)]" \
-    --p0 "[(v,v,(v+1)%3) for v in range(3)]" --name "Dijkstra m=3"
+# (1,1)-asymmetric: Dijkstra's token ring (m=3).
+# The main expression is the transition set of the ordinary processes
+# (copy the predecessor: (v, w, v) for v != w); --p0 gives the
+# distinguished process (increment when equal: (v, v, v+1 mod m)).
+python3 run_protocol.py "[(v,w,v) for v in range(3) for w in range(3) if v!=w]" \
+    --p0 "[(v,v,(v+1)%3) for v in range(3)]" --name "Dijkstra m=3" --quiet
+# Output: LIVELOCK
+# (Dijkstra m=3,4,5 is also the first check in the built-in suite:
+#  python3 livelock_complete.py)
 
 # Quick check
-python3 run_protocol.py "[(0,2,1),(1,1,2),(2,0,1)]" -q
+python3 run_protocol.py "[(0,2,1),(1,1,2),(2,0,1)]" --quiet
 # Output: NO LIVELOCK
 
-# Generate a protocol with list comprehension
-python3 run_protocol.py "[(p,o,(o+1)%4) for p in range(4) for o in range(4) if o!=(o+1)%4 and not(p==p and (o+1)%4==o)]"
+# Reproduce the paper's Section VIII compound-chain counterexample
+python3 run_protocol.py --example forced_counter --quiet
+# Output: INCONCLUSIVE
 ```
 
 ### Protocol File Format
@@ -269,10 +292,13 @@ Main entry point. Analyzes a protocol for livelock behavior.
   - `T_p0`: list of (pred, own, wr) tuples — transitions for P0 (or all processes if symmetric)
   - `T_other`: list of (pred, own, wr) tuples — transitions for other processes (same as T_p0 for symmetric)
   - `verbose`: bool — print progress (default True)
-- **Returns:** `(has_livelock, kernel_p0, kernel_other)`
+- **Returns:** `(has_livelock, kernel_p0, kernel_other, graph_info)` — a 4-tuple
   - `has_livelock`: bool — True if livelock confirmed
   - `kernel_p0`: frozenset — surviving transitions (L\*). Empty if G\*=∅. Non-empty for LIVELOCK or INCONCLUSIVE.
   - `kernel_other`: frozenset — same as kernel_p0 for symmetric protocols
+  - `graph_info`: backtracking graph data for the symmetric path (the G\*
+    structure used by the cycle search); `None` when G\*=∅ and on the
+    asymmetric path
 - **Interpreting results:**
   - `has_livelock=True` → LIVELOCK
   - `has_livelock=False, kernel_p0=∅` → LIVELOCK-FREE
@@ -282,7 +308,7 @@ Main entry point. Analyzes a protocol for livelock behavior.
 import livelock_complete as lc
 
 T = [(0,0,1), (1,1,2), (2,2,0)]
-has_ll, k0, ko = lc.fixed_point(T, T, verbose=True)
+has_ll, k0, ko, _ = lc.fixed_point(T, T, verbose=True)
 
 if has_ll:
     print(f"LIVELOCK — {len(k0)} transitions survive")
@@ -450,11 +476,36 @@ lc.analyze("Checkerboard", T, expect="LIVELOCK")
 
 | Category | Count | Result |
 |----------|------:|--------|
-| Known protocols (Dijkstra, 3-coloring, SNS2, ...) | 25 | All correct |
-| Random self-disabling (stress test) | 4,300+ | Zero errors |
+| Built-in suite: Dijkstra (m=3,4,5), coloring family, Sum-Not-2 family, regression seeds, forced counters | 24 | All correct |
 | K&E adversarial (SE tiling, m=15) | 1 | LIVELOCK ✓ |
 | Kari aperiodic (14 tiles → 54 transitions) | 1 | INCONCLUSIVE ✓ |
+| Random self-disabling (stress test, `test_harness.py`) | 4,300+ | Zero errors |
 | **Total** | **4,349** | **Zero errors** |
+
+The grand total is the paper's figure. The first three rows (26 checks) are
+`python3 livelock_complete.py`; the randomized row is `test_harness.py`,
+cross-validated against exhaustive state-space search at ring sizes K ≤ 6.
+
+---
+
+## Reproducing the Paper's Results
+
+Each claim in the paper maps to one command:
+
+| Paper claim | Command | Expected | Time |
+|---|---|---|---|
+| Dijkstra token ring has livelock (§VII-A) | `python3 livelock_complete.py` (first three checks) | LIVELOCK ✓ ×3 | seconds |
+| Sum-Not-2 det. free / non-det. livelock (§II) | `run_protocol.py --example sum_not_2` / `--example sum_not_2_nondet` | NO LIVELOCK / LIVELOCK | seconds |
+| K&E adversarial: all 17 transitions survive, cycle closes (§VII-D) | `run_protocol.py --example ke_adversarial` | LIVELOCK | seconds |
+| Kari aperiodic: 272 arcs survive, no cycle closes (§VII-E) | `python3 livelock_complete.py` (final check), or the Wang-gadget snippet below | INCONCLUSIVE | seconds |
+| Compound-chain counterexample (§VIII) | `run_protocol.py --example forced_counter --quiet` | INCONCLUSIVE (real livelock, K=12, N=128) | seconds |
+| k=2 counter detected via mixed chain (§VIII) | `run_protocol.py --example forced_counter_k2 --quiet` | LIVELOCK | seconds |
+| Randomized cross-validation, zero false negatives (§VII-B) | `python3 test_harness.py --count 150` | 150/150 pass | ~4 min |
+
+The full built-in suite (`python3 livelock_complete.py`, ~10 seconds) covers
+everything except the randomized row. Kari's fixed point converges in 3
+iterations (3046 → 299 → 275 → 272 arcs); backtracking then rejects all
+~9,800 canonical simple cycles.
 
 ---
 
@@ -462,7 +513,8 @@ lc.analyze("Checkerboard", T, expect="LIVELOCK")
 
 ### Necessary Condition (Theorem 1)
 
-Every livelock maps into the product graph G×(T) as a **witness-closed subgraph**:
+Every livelock maps into the product graph G×(T) as a **backward-closed subgraph**
+(the paper's term; the code calls it *witness-closed*):
 a subgraph where every arc lies on a cycle (cyclicity) and every arc's witness-pair
 is a transition-pair on some cycle arc (backward closure).
 
@@ -510,8 +562,9 @@ guarantee. This is where the undecidability of the periodic domino problem
 
 ### Relationship to K&E's Undecidability Result
 
-Klinkhamer & Ebnenasir (2019) proved that livelock detection for parameterized
-rings is Π₁⁰-complete. Our algorithm is consistent with this: it decides a
+Klinkhamer & Ebnenasir (2019) proved that for parameterized rings, livelock
+detection is Σ₁⁰-complete and livelock-freedom verification is Π₁⁰-complete.
+Our algorithm is consistent with this: it decides a
 significant subclass (bounded-period livelocks) and produces INCONCLUSIVE when
 the bound is exceeded. The INCONCLUSIVE outcome is the algorithm's honest
 acknowledgment that the full problem is undecidable.
@@ -545,8 +598,8 @@ acknowledgment that the full problem is undecidable.
 4. A. Farahat and A. Ebnenasir. "Local reasoning for global convergence of
    parameterized rings." *Proc. IEEE ICDCS*, pp. 496–505, 2012.
 
-5. M. G. Gouda and T. Haddix. "The alternator." *Distributed Computing*,
-   20(1):21–28, 2007.
+5. M. G. Gouda and F. Haddix. "The stabilizing token ring in three bits."
+   *Journal of Parallel and Distributed Computing*, 35(1):43–48, 1996.
 
 6. J. Kari. "A small aperiodic set of Wang tiles." *Discrete Mathematics*,
    160(1–3):259–264, 1996.

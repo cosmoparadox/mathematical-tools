@@ -366,11 +366,11 @@ Examples:
         sd0, _ = lc.check_self_disabling(T_zero)
         sd1, _ = lc.check_self_disabling(T_other)
         if not sd0:
-            T_zero, local_ll, _ = lc.augment_transitive_closure(T_zero)
+            T_zero, local_ll = lc.augment_transitive_closure(T_zero)
             if local_ll:
                 print("LIVELOCK"); return
         if not sd1:
-            T_other, local_ll, _ = lc.augment_transitive_closure(T_other)
+            T_other, local_ll = lc.augment_transitive_closure(T_other)
             if local_ll:
                 print("LIVELOCK"); return
         has_ll, k0, _, _ = lc.fixed_point(T_zero, T_other, verbose=False)
